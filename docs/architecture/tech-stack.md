@@ -1,0 +1,81 @@
+# Tech Stack
+
+このドキュメントには、このプロジェクトで採用する技術スタック、主要ツール、バージョン方針を記録する。
+
+## 採用技術
+
+| 領域 | 採用技術 | バージョン | 用途 | 備考 |
+| --- | --- | --- | --- | --- |
+| ランタイム | Node.js | 24 | JavaScript または TypeScript の実行基盤 | `mise.toml` で指定 |
+| モバイルフレームワーク | Expo | TBD | モバイルアプリケーション開発 | プロジェクト初期化後に確定する |
+| UI フレームワーク | React Native | TBD | iPhone アプリケーション開発 | Expo 経由で利用する |
+| ルーティング | Expo Router | TBD | iPhone アプリの画面遷移 | `apps/mobile/src/app` にルートを置く |
+| 言語 | TypeScript | TBD | iPhone アプリと Mac 側ブリッジの実装 | 採用方針 |
+| サーバーフレームワーク | Hono | TBD | Mac 側ブリッジサーバー | Node.js Adapter を使う |
+| パッケージマネージャー | pnpm | TBD | Node.js 依存関係の管理 | git worktree 運用との相性を重視する |
+| ツール管理 | mise | TBD | Node.js、pnpm、Biome などのツール管理 | `mise.toml` で管理する |
+| タスクランナー | mise tasks | TBD | 開発コマンドの単一入口 | 可能な限り mise tasks 以外の直接実行を避ける |
+| Lint | Biome | TBD | 静的解析 | mise 管理対象にする |
+| Format | Biome | TBD | コード整形 | mise 管理対象にする |
+| Unit Test | Jest | TBD | 関数、ユーティリティ、純粋ロジックの検証 | `jest-expo` を含めて検討する |
+| Component Test | Jest + React Native Testing Library | TBD | React Native コンポーネントの検証 | Expo と React Native の標準構成に寄せる |
+| Integration Test | Jest | TBD | iPhone アプリ、Mac 側ブリッジ、tmux 連携境界の検証 | 境界と実行環境の設計が必要 |
+| E2E Test | Maestro | TBD | ユーザー操作からリモート Codex セッションまでの検証 | Expo Go から始め、必要に応じて Development Build で拡張する |
+| API 契約 | Zod | TBD | iPhone アプリと Mac 側ブリッジ間のスキーマ共有と実行時検証 | 共有パッケージに配置する |
+| SSH | TBD | TBD | iPhone から母艦の Mac へ接続する | ライブラリ選定が必要 |
+| セッション管理 | tmux | TBD | Codex CLI の実行セッションを維持する | Mac 側の前提ツール |
+| CLI | Codex CLI | TBD | 母艦の Mac 上で作業を実行する | tmux 上で起動する |
+| VPN | Tailscale | TBD | iPhone と Mac の到達性を確保する | プロジェクトの実装対象外 |
+| TTS | irodori-TTS または TBD | TBD | Codex CLI の結果を読み上げる | 候補段階 |
+| CI | TBD | TBD | TBD | TBD |
+| デプロイ | TBD | TBD | TBD | TBD |
+
+## 採用理由
+
+- Node.js 24 は `mise.toml` で指定済みである。
+- Expo はプロジェクトの目的に含まれているため、モバイル開発の前提として扱う。
+- React Native は Expo で iPhone アプリを実装するために使う。
+- Expo Router は iPhone アプリの画面遷移をファイルベースで管理するために使う。
+- TypeScript は iPhone アプリと Mac 側ブリッジの両方で型を共有しやすくするために使う。
+- Hono は Mac 側ブリッジサーバーを軽量に実装するために使う。
+- pnpm は git worktree 運用との相性を重視して使う。
+- mise はツール管理とタスクランナーの単一入口として使う。
+- Biome は Lint と Format をまとめて扱うために使う。
+- Jest は React Native と Expo のテスト導線に合わせるために使う。
+- Maestro は E2E Test に使う。
+- Zod は iPhone アプリと Mac 側ブリッジの API 契約を共有し、実行時検証を行うために使う。
+- tmux は SSH 接続先で Codex CLI のセッションを維持するために使う。
+- Tailscale は VPN として利用するが、このプロジェクトでは構築や管理を対象外にする。
+- その他の技術は、実装方針が決まり次第、この文書に記録する。
+
+## バージョン管理方針
+
+言語、ランタイム、パッケージマネージャー、主要ツールのバージョンをどこで固定するかを記載する。
+
+- `mise.toml`
+- `package.json`
+- `pnpm-lock.yaml`
+
+方針:
+
+- Node.js、pnpm、Biome などの開発ツールは `mise.toml` に固定する。
+- 依存関係は pnpm と `pnpm-lock.yaml` で固定する。
+- 開発コマンドは `mise tasks` に集約する。
+- `package.json` の scripts は、必要な場合でも mise task から呼ばれる内部実装として扱う。
+
+## 代替候補
+
+検討したが採用しなかった候補と、その理由を記載する。
+
+| 候補 | 不採用理由 | 備考 |
+| --- | --- | --- |
+| npm | git worktree 運用で pnpm を優先するため | 必要な場合のみ比較する |
+| yarn | git worktree 運用で pnpm を優先するため | 必要な場合のみ比較する |
+| ESLint + Prettier | Lint と Format を Biome に寄せるため | Biome で不足するルールが出た場合に再検討する |
+| Vitest | React Native と Expo のテスト導線に合わせて Jest を優先するため | Mac 側ブリッジが大きくなった場合に再検討する |
+
+## 更新ルール
+
+- 技術スタックを変更した場合は、このファイルを更新する。
+- 実行コマンドを変更した場合は、`docs/development/commands.md` も更新する。
+- 採用理由が意思決定として重要な場合は、`docs/decisions/` に ADR を追加する。

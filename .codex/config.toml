@@ -1,0 +1,3 @@
+# Treat CLAUDE.md as repository guidance when AGENTS.md is absent.
+project_doc_fallback_filenames = ["CLAUDE.md"]
+
