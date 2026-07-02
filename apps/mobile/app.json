@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "expo-sanpo",
+    "slug": "expo-sanpo",
+    "scheme": "expo-sanpo",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["ios"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

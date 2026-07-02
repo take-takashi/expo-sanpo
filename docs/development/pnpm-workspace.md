@@ -50,3 +50,13 @@ packages:
 | `apps/bridge` | `@expo-sanpo/bridge` |
 | `packages/contracts` | `@expo-sanpo/contracts` |
 
+## build script 承認
+
+pnpm 11 では、依存パッケージの build script を明示的に承認する必要がある。
+
+現時点では、開発ツール経由で必要になる `esbuild` を `pnpm-workspace.yaml` の
+`allowBuilds` に記録している。`onlyBuiltDependencies` には、build script を持ちうる
+依存の許可範囲を記録している。
+
+新しい依存で build script 承認が必要になった場合は、依存の用途と必要性を確認してから、
+必要最小限のパッケージだけを追加する。

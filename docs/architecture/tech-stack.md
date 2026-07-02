@@ -7,21 +7,21 @@
 | 領域 | 採用技術 | バージョン | 用途 | 備考 |
 | --- | --- | --- | --- | --- |
 | ランタイム | Node.js | 24 | JavaScript または TypeScript の実行基盤 | `mise.toml` で指定 |
-| モバイルフレームワーク | Expo | TBD | モバイルアプリケーション開発 | プロジェクト初期化後に確定する |
-| UI フレームワーク | React Native | TBD | iPhone アプリケーション開発 | Expo 経由で利用する |
-| ルーティング | Expo Router | TBD | iPhone アプリの画面遷移 | `apps/mobile/src/app` にルートを置く |
-| 言語 | TypeScript | TBD | iPhone アプリと Mac 側ブリッジの実装 | 採用方針 |
-| サーバーフレームワーク | Hono | TBD | Mac 側ブリッジサーバー | Node.js Adapter を使う |
-| パッケージマネージャー | pnpm | TBD | Node.js 依存関係の管理 | git worktree 運用との相性を重視する |
-| ツール管理 | mise | TBD | Node.js、pnpm、Biome などのツール管理 | `mise.toml` で管理する |
-| タスクランナー | mise tasks | TBD | 開発コマンドの単一入口 | 可能な限り mise tasks 以外の直接実行を避ける |
-| Lint | Biome | TBD | 静的解析 | mise 管理対象にする |
-| Format | Biome | TBD | コード整形 | mise 管理対象にする |
-| Unit Test | Jest | TBD | 関数、ユーティリティ、純粋ロジックの検証 | `jest-expo` を含めて検討する |
+| モバイルフレームワーク | Expo | 54.0.x | モバイルアプリケーション開発 | `apps/mobile` で利用する |
+| UI フレームワーク | React Native | 0.81.5 | iPhone アプリケーション開発 | Expo 経由で利用する |
+| ルーティング | Expo Router | 6.0.x | iPhone アプリの画面遷移 | `apps/mobile/src/app` にルートを置く |
+| 言語 | TypeScript | 5.9.3 | iPhone アプリと Mac 側ブリッジの実装 | ルートで共通設定を持つ |
+| サーバーフレームワーク | Hono | 4.10.7 | Mac 側ブリッジサーバー | Node.js Adapter を使う |
+| パッケージマネージャー | pnpm | 11.9.0 | Node.js 依存関係の管理 | git worktree 運用との相性を重視する |
+| ツール管理 | mise | 2026.6.14 で検証 | Node.js、pnpm、Biome などのツール管理 | `mise.toml` で管理する |
+| タスクランナー | mise tasks | 2026.6.14 で検証 | 開発コマンドの単一入口 | 可能な限り mise tasks 以外の直接実行を避ける |
+| Lint | Biome | 2.5.2 | 静的解析 | mise 管理対象にする |
+| Format | Biome | 2.5.2 | コード整形 | mise 管理対象にする |
+| Unit Test | Jest | 29.7.0 | 関数、ユーティリティ、純粋ロジックの検証 | ts-jest で TypeScript を実行する |
 | Component Test | Jest + React Native Testing Library | TBD | React Native コンポーネントの検証 | Expo と React Native の標準構成に寄せる |
 | Integration Test | Jest | TBD | iPhone アプリ、Mac 側ブリッジ、tmux 連携境界の検証 | 境界と実行環境の設計が必要 |
 | E2E Test | Maestro | TBD | ユーザー操作からリモート Codex セッションまでの検証 | Expo Go から始め、必要に応じて Development Build で拡張する |
-| API 契約 | Zod | TBD | iPhone アプリと Mac 側ブリッジ間のスキーマ共有と実行時検証 | 共有パッケージに配置する |
+| API 契約 | Zod | 4.1.13 | iPhone アプリと Mac 側ブリッジ間のスキーマ共有と実行時検証 | `packages/contracts` に配置する |
 | SSH | TBD | TBD | iPhone から母艦の Mac へ接続する | ライブラリ選定が必要 |
 | セッション管理 | tmux | TBD | Codex CLI の実行セッションを維持する | Mac 側の前提ツール |
 | CLI | Codex CLI | TBD | 母艦の Mac 上で作業を実行する | tmux 上で起動する |

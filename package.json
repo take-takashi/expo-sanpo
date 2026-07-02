@@ -1,0 +1,25 @@
+{
+  "name": "expo-sanpo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "check": "mise run check",
+    "format": "mise run format",
+    "format:check": "mise run format:check",
+    "lint": "mise run lint",
+    "test": "mise run test",
+    "typecheck": "mise run typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.2",
+    "@types/jest": "29.5.14",
+    "@types/node": "24.10.1",
+    "jest": "29.7.0",
+    "ts-jest": "29.4.11",
+    "typescript": "5.9.3"
+  }
+}

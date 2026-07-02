@@ -1,2 +1,56 @@
 [tools]
 node = "24"
+pnpm = "11.9.0"
+biome = "2.5.2"
+
+[tasks.install]
+description = "Install workspace dependencies"
+run = "pnpm install"
+
+[tasks.dev]
+description = "Start the Expo mobile development server"
+run = "pnpm --filter @expo-sanpo/mobile run dev"
+
+[tasks."dev:bridge"]
+description = "Start the bridge server in development mode"
+run = "pnpm --filter @expo-sanpo/bridge run dev"
+
+[tasks.lint]
+description = "Run Biome lint"
+run = "biome lint ."
+
+[tasks.format]
+description = "Format files with Biome"
+run = "biome format --write ."
+
+[tasks."format:check"]
+description = "Check formatting with Biome"
+run = "biome format ."
+
+[tasks.typecheck]
+description = "Run TypeScript type checks"
+run = "pnpm -r --if-present run typecheck"
+
+[tasks."test:unit"]
+description = "Run unit tests"
+run = "pnpm -r --if-present run test:unit"
+
+[tasks."test:component"]
+description = "Run component tests"
+run = "pnpm -r --if-present run test:component"
+
+[tasks."test:integration"]
+description = "Run integration tests"
+run = "pnpm -r --if-present run test:integration"
+
+[tasks."test:e2e"]
+description = "Run E2E tests"
+run = "pnpm -r --if-present run test:e2e"
+
+[tasks.test]
+description = "Run all tests"
+depends = ["test:unit", "test:component", "test:integration", "test:e2e"]
+
+[tasks.check]
+description = "Run all local verification tasks"
+depends = ["lint", "format:check", "typecheck", "test"]
