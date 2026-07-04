@@ -1,47 +1,122 @@
-import { bridgeHealthResponseSchema } from "@expo-sanpo/contracts";
+import {
+  bridgeHealthResponseSchema,
+  createSessionResponseSchema,
+  sessionMessagesResponseSchema,
+  type Message,
+} from "@expo-sanpo/contracts";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 const defaultBridgeUrl = "http://localhost:8787";
 
+function normalizeBridgeUrl(bridgeUrl: string) {
+  return bridgeUrl.trim().replace(/\/$/, "");
+}
+
 export default function HomeScreen() {
   const [bridgeUrl, setBridgeUrl] = useState(defaultBridgeUrl);
-  const [statusText, setStatusText] = useState("Not checked");
+  const [healthStatusText, setHealthStatusText] = useState("Not checked");
+  const [sessionStatusText, setSessionStatusText] = useState("No session");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isChecking, setIsChecking] = useState(false);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
-  async function checkBridgeHealth() {
-    const baseUrl = bridgeUrl.trim().replace(/\/$/, "");
+  function getBaseUrl() {
+    const baseUrl = normalizeBridgeUrl(bridgeUrl);
 
     if (baseUrl.length === 0) {
-      setStatusText("Bridge URL is required");
-      return;
+      throw new Error("Bridge URL is required");
     }
 
+    return baseUrl;
+  }
+
+  async function checkBridgeHealth() {
     setIsChecking(true);
-    setStatusText("Checking...");
+    setHealthStatusText("Checking...");
 
     try {
-      const response = await fetch(`${baseUrl}/health`);
+      const response = await fetch(`${getBaseUrl()}/health`);
 
       if (!response.ok) {
-        setStatusText(`HTTP ${response.status}`);
+        setHealthStatusText(`HTTP ${response.status}`);
         return;
       }
 
       const health = bridgeHealthResponseSchema.parse(await response.json());
-      setStatusText(`${health.service}: ${health.status}`);
+      setHealthStatusText(`${health.service}: ${health.status}`);
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "Unknown error");
+      setHealthStatusText(error instanceof Error ? error.message : "Unknown error");
     } finally {
       setIsChecking(false);
     }
   }
 
+  async function createSession() {
+    setIsCreatingSession(true);
+    setSessionStatusText("Creating...");
+
+    try {
+      const baseUrl = getBaseUrl();
+      const response = await fetch(`${baseUrl}/sessions`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        setSessionStatusText(`HTTP ${response.status}`);
+        return;
+      }
+
+      const created = createSessionResponseSchema.parse(await response.json());
+      setSessionId(created.session.id);
+      setSessionStatusText(`Session: ${created.session.id}`);
+      await loadMessages(baseUrl, created.session.id);
+    } catch (error) {
+      setSessionStatusText(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setIsCreatingSession(false);
+    }
+  }
+
+  async function refreshMessages() {
+    if (!sessionId) {
+      setSessionStatusText("No session");
+      return;
+    }
+
+    try {
+      await loadMessages(getBaseUrl(), sessionId);
+    } catch (error) {
+      setSessionStatusText(error instanceof Error ? error.message : "Unknown error");
+    }
+  }
+
+  async function loadMessages(baseUrl: string, targetSessionId: string) {
+    setIsLoadingMessages(true);
+
+    try {
+      const response = await fetch(`${baseUrl}/sessions/${targetSessionId}/messages`);
+
+      if (!response.ok) {
+        setSessionStatusText(`HTTP ${response.status}`);
+        return;
+      }
+
+      const sessionMessages = sessionMessagesResponseSchema.parse(await response.json());
+      setMessages(sessionMessages.messages);
+      setSessionStatusText(`Session: ${sessionMessages.sessionId}`);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }
+
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Text style={styles.title}>expo-sanpo</Text>
-        <Text style={styles.subtitle}>Bridge health</Text>
+        <Text style={styles.subtitle}>Bridge session</Text>
       </View>
 
       <View style={styles.form}>
@@ -65,19 +140,65 @@ export default function HomeScreen() {
             pressed && !isChecking ? styles.buttonPressed : null,
           ]}
         >
-          <Text style={styles.buttonText}>{isChecking ? "Checking" : "Check"}</Text>
+          <Text style={styles.buttonText}>{isChecking ? "Checking" : "Check Health"}</Text>
         </Pressable>
       </View>
 
-      <View style={styles.statusPanel}>
-        <Text style={styles.statusLabel}>Status</Text>
-        <Text style={styles.status}>{statusText}</Text>
+      <View style={styles.panel}>
+        <Text style={styles.statusLabel}>Health</Text>
+        <Text style={styles.status}>{healthStatusText}</Text>
       </View>
-    </View>
+
+      <View style={styles.actions}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={isCreatingSession}
+          onPress={createSession}
+          style={({ pressed }) => [
+            styles.button,
+            isCreatingSession ? styles.buttonDisabled : null,
+            pressed && !isCreatingSession ? styles.buttonPressed : null,
+          ]}
+        >
+          <Text style={styles.buttonText}>{isCreatingSession ? "Creating" : "Create Session"}</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          disabled={!sessionId || isLoadingMessages}
+          onPress={refreshMessages}
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            !sessionId || isLoadingMessages ? styles.secondaryButtonDisabled : null,
+            pressed && sessionId && !isLoadingMessages ? styles.secondaryButtonPressed : null,
+          ]}
+        >
+          <Text style={styles.secondaryButtonText}>
+            {isLoadingMessages ? "Loading" : "Refresh Messages"}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.panel}>
+        <Text style={styles.statusLabel}>Session</Text>
+        <Text style={styles.status}>{sessionStatusText}</Text>
+      </View>
+
+      <View style={styles.messages}>
+        {messages.map((message) => (
+          <View key={message.id} style={styles.message}>
+            <Text style={styles.messageRole}>{message.role}</Text>
+            <Text style={styles.messageContent}>{message.content}</Text>
+          </View>
+        ))}
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  actions: {
+    gap: 10,
+  },
   button: {
     alignItems: "center",
     backgroundColor: "#2563eb",
@@ -99,8 +220,8 @@ const styles = StyleSheet.create({
   },
   container: {
     backgroundColor: "#f8fafc",
-    flex: 1,
-    gap: 24,
+    flexGrow: 1,
+    gap: 18,
     justifyContent: "center",
     padding: 24,
   },
@@ -125,6 +246,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+  message: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    padding: 14,
+  },
+  messageContent: {
+    color: "#0f172a",
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  messageRole: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  messages: {
+    gap: 10,
+  },
+  panel: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16,
+  },
+  secondaryButton: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#2563eb",
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 16,
+  },
+  secondaryButtonDisabled: {
+    borderColor: "#cbd5e1",
+  },
+  secondaryButtonPressed: {
+    backgroundColor: "#eff6ff",
+  },
+  secondaryButtonText: {
+    color: "#1d4ed8",
+    fontSize: 16,
+    fontWeight: "700",
+  },
   status: {
     color: "#0f172a",
     fontSize: 16,
@@ -134,14 +306,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     textTransform: "uppercase",
-  },
-  statusPanel: {
-    backgroundColor: "#ffffff",
-    borderColor: "#e2e8f0",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 8,
-    padding: 16,
   },
   subtitle: {
     color: "#475569",

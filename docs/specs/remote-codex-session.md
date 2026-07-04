@@ -56,6 +56,12 @@ iPhone アプリから母艦の Mac 上の tmux セッションに接続し、Co
 - Tailscale のセットアップや状態管理。
 - Mac 側の Codex CLI のインストール自動化。
 
+## 初期 PoC
+
+現時点では、iPhone アプリから Mac 側ブリッジへ接続し、`POST /sessions` でメモリ上のセッションを作成し、`GET /sessions/:id/messages` で固定の system message を取得する。
+
+tmux と Codex CLI への実接続は、セッション API の往復が安定した後に追加する。
+
 ## 未確定事項
 
 - tmux セッション名の命名規則。

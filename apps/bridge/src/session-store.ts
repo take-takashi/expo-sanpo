@@ -1,0 +1,47 @@
+import { randomUUID } from "node:crypto";
+import {
+  type Message,
+  type Session,
+  createSessionResponseSchema,
+  sessionMessagesResponseSchema,
+} from "@expo-sanpo/contracts";
+
+export class SessionStore {
+  readonly #sessions = new Map<string, Session>();
+  readonly #messages = new Map<string, Message[]>();
+
+  createSession() {
+    const createdAt = new Date().toISOString();
+    const session: Session = {
+      id: randomUUID(),
+      createdAt,
+    };
+    const messages: Message[] = [
+      {
+        id: randomUUID(),
+        sessionId: session.id,
+        role: "system",
+        content: "Session is ready. tmux integration is not connected yet.",
+        createdAt,
+      },
+    ];
+
+    this.#sessions.set(session.id, session);
+    this.#messages.set(session.id, messages);
+
+    return createSessionResponseSchema.parse({ session });
+  }
+
+  getMessages(sessionId: string) {
+    const messages = this.#messages.get(sessionId);
+
+    if (!messages) {
+      return null;
+    }
+
+    return sessionMessagesResponseSchema.parse({
+      sessionId,
+      messages,
+    });
+  }
+}
