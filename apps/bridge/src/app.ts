@@ -38,7 +38,7 @@ export function createApp(sessionStore = new SessionStore()) {
       return context.json({ error: "Invalid prompt request" }, 400);
     }
 
-    const response = sessionStore.sendPrompt(context.req.param("id"), request.data.prompt);
+    const response = await sessionStore.sendPrompt(context.req.param("id"), request.data.prompt);
 
     if (!response) {
       return context.json({ error: "Session not found" }, 404);

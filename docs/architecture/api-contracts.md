@@ -37,6 +37,8 @@ Mac 側ブリッジの HTTP API は Hono で実装する。
 
 Mac 側ブリッジは、セッションとメッセージをプロセスメモリに保持する。ブリッジを再起動すると、この PoC のセッション情報は失われる。
 
+`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した場合は、prompt 送信時に tmux 上の `cat` セッションへ入力し、`capture-pane` の結果を assistant message にする。
+
 ## 未解決事項
 
 - API のエラーコード体系。

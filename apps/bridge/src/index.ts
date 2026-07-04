@@ -1,9 +1,12 @@
 import { serve } from "@hono/node-server";
 
-import { app } from "./app.js";
+import { createApp } from "./app.js";
+import { createPromptRunnerFromEnv } from "./prompt-runner-factory.js";
+import { SessionStore } from "./session-store.js";
 import { getBridgeServerUrls } from "./server-url.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
+const app = createApp(new SessionStore(createPromptRunnerFromEnv()));
 
 serve(
   {

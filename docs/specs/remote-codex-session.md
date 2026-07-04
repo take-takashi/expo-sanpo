@@ -60,7 +60,7 @@ iPhone アプリから母艦の Mac 上の tmux セッションに接続し、Co
 
 現時点では、iPhone アプリから Mac 側ブリッジへ接続し、`POST /sessions` でメモリ上のセッションを作成し、`POST /sessions/:id/prompts` で user message と mock assistant message を追加し、`GET /sessions/:id/messages` でメッセージ一覧を取得する。
 
-tmux と Codex CLI への実接続は、セッション API の往復が安定した後に追加する。
+tmux との最小接続検証では、`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した Mac 側ブリッジが tmux 上の `cat` セッションへ入力し、`tmux capture-pane` の結果を assistant message として返す。Codex CLI への実接続は、この tmux echo 検証が安定した後に追加する。
 
 ## 未確定事項
 

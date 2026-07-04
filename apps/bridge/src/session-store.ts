@@ -7,9 +7,16 @@ import {
   sessionMessagesResponseSchema,
 } from "@expo-sanpo/contracts";
 
+import { MockPromptRunner, type PromptRunner } from "./prompt-runner.js";
+
 export class SessionStore {
-  readonly #sessions = new Map<string, Session>();
   readonly #messages = new Map<string, Message[]>();
+  readonly #promptRunner: PromptRunner;
+  readonly #sessions = new Map<string, Session>();
+
+  constructor(promptRunner: PromptRunner = new MockPromptRunner()) {
+    this.#promptRunner = promptRunner;
+  }
 
   createSession() {
     const createdAt = new Date().toISOString();
@@ -22,7 +29,7 @@ export class SessionStore {
         id: randomUUID(),
         sessionId: session.id,
         role: "system",
-        content: "Session is ready. tmux integration is not connected yet.",
+        content: this.#promptRunner.getReadyMessage(),
         createdAt,
       },
     ];
@@ -46,30 +53,30 @@ export class SessionStore {
     });
   }
 
-  sendPrompt(sessionId: string, prompt: string) {
+  async sendPrompt(sessionId: string, prompt: string) {
     const messages = this.#messages.get(sessionId);
 
     if (!messages) {
       return null;
     }
 
-    const createdAt = new Date().toISOString();
-    messages.push(
-      {
-        id: randomUUID(),
-        sessionId,
-        role: "user",
-        content: prompt,
-        createdAt,
-      },
-      {
-        id: randomUUID(),
-        sessionId,
-        role: "assistant",
-        content: `Mock response: ${prompt}`,
-        createdAt,
-      },
-    );
+    const userMessageCreatedAt = new Date().toISOString();
+    messages.push({
+      id: randomUUID(),
+      sessionId,
+      role: "user",
+      content: prompt,
+      createdAt: userMessageCreatedAt,
+    });
+
+    const assistantContent = await this.#promptRunner.runPrompt(sessionId, prompt);
+    messages.push({
+      id: randomUUID(),
+      sessionId,
+      role: "assistant",
+      content: assistantContent,
+      createdAt: new Date().toISOString(),
+    });
 
     return sendPromptResponseSchema.parse({
       sessionId,

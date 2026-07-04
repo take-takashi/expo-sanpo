@@ -23,10 +23,10 @@ describe("SessionStore", () => {
     });
   });
 
-  it("stores a user prompt with a mock assistant response", () => {
+  it("stores a user prompt with a mock assistant response", async () => {
     const store = new SessionStore();
     const created = store.createSession();
-    const response = store.sendPrompt(created.session.id, "Hello Codex");
+    const response = await store.sendPrompt(created.session.id, "Hello Codex");
 
     expect(response?.messages).toHaveLength(3);
     expect(response?.messages.at(1)).toMatchObject({
@@ -41,10 +41,10 @@ describe("SessionStore", () => {
     });
   });
 
-  it("returns null for unknown sessions", () => {
+  it("returns null for unknown sessions", async () => {
     const store = new SessionStore();
 
     expect(store.getMessages("missing-session")).toBeNull();
-    expect(store.sendPrompt("missing-session", "Hello")).toBeNull();
+    await expect(store.sendPrompt("missing-session", "Hello")).resolves.toBeNull();
   });
 });
