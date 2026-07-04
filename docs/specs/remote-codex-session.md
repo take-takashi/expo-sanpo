@@ -58,7 +58,7 @@ iPhone アプリから母艦の Mac 上の tmux セッションに接続し、Co
 
 ## 初期 PoC
 
-現時点では、iPhone アプリから Mac 側ブリッジへ接続し、`POST /sessions` でメモリ上のセッションを作成し、`GET /sessions/:id/messages` で固定の system message を取得する。
+現時点では、iPhone アプリから Mac 側ブリッジへ接続し、`POST /sessions` でメモリ上のセッションを作成し、`POST /sessions/:id/prompts` で user message と mock assistant message を追加し、`GET /sessions/:id/messages` でメッセージ一覧を取得する。
 
 tmux と Codex CLI への実接続は、セッション API の往復が安定した後に追加する。
 

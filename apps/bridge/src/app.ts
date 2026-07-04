@@ -1,4 +1,4 @@
-import { bridgeHealthResponseSchema } from "@expo-sanpo/contracts";
+import { bridgeHealthResponseSchema, sendPromptRequestSchema } from "@expo-sanpo/contracts";
 import { Hono } from "hono";
 
 import { SessionStore } from "./session-store.js";
@@ -29,6 +29,22 @@ export function createApp(sessionStore = new SessionStore()) {
     }
 
     return context.json(response);
+  });
+
+  app.post("/sessions/:id/prompts", async (context) => {
+    const request = sendPromptRequestSchema.safeParse(await context.req.json().catch(() => null));
+
+    if (!request.success) {
+      return context.json({ error: "Invalid prompt request" }, 400);
+    }
+
+    const response = sessionStore.sendPrompt(context.req.param("id"), request.data.prompt);
+
+    if (!response) {
+      return context.json({ error: "Session not found" }, 404);
+    }
+
+    return context.json(response, 201);
   });
 
   return app;

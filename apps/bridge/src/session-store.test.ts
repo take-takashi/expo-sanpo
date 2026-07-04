@@ -23,9 +23,28 @@ describe("SessionStore", () => {
     });
   });
 
+  it("stores a user prompt with a mock assistant response", () => {
+    const store = new SessionStore();
+    const created = store.createSession();
+    const response = store.sendPrompt(created.session.id, "Hello Codex");
+
+    expect(response?.messages).toHaveLength(3);
+    expect(response?.messages.at(1)).toMatchObject({
+      sessionId: created.session.id,
+      role: "user",
+      content: "Hello Codex",
+    });
+    expect(response?.messages.at(2)).toMatchObject({
+      sessionId: created.session.id,
+      role: "assistant",
+      content: "Mock response: Hello Codex",
+    });
+  });
+
   it("returns null for unknown sessions", () => {
     const store = new SessionStore();
 
     expect(store.getMessages("missing-session")).toBeNull();
+    expect(store.sendPrompt("missing-session", "Hello")).toBeNull();
   });
 });

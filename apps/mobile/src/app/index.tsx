@@ -1,6 +1,7 @@
 import {
   bridgeHealthResponseSchema,
   createSessionResponseSchema,
+  sendPromptResponseSchema,
   sessionMessagesResponseSchema,
   type Message,
 } from "@expo-sanpo/contracts";
@@ -18,10 +19,12 @@ export default function HomeScreen() {
   const [healthStatusText, setHealthStatusText] = useState("Not checked");
   const [sessionStatusText, setSessionStatusText] = useState("No session");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [promptText, setPromptText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isChecking, setIsChecking] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isSendingPrompt, setIsSendingPrompt] = useState(false);
 
   function getBaseUrl() {
     const baseUrl = normalizeBridgeUrl(bridgeUrl);
@@ -90,6 +93,45 @@ export default function HomeScreen() {
       await loadMessages(getBaseUrl(), sessionId);
     } catch (error) {
       setSessionStatusText(error instanceof Error ? error.message : "Unknown error");
+    }
+  }
+
+  async function sendPrompt() {
+    if (!sessionId) {
+      setSessionStatusText("No session");
+      return;
+    }
+
+    const prompt = promptText.trim();
+
+    if (prompt.length === 0) {
+      setSessionStatusText("Prompt is required");
+      return;
+    }
+
+    setIsSendingPrompt(true);
+
+    try {
+      const baseUrl = getBaseUrl();
+      const response = await fetch(`${baseUrl}/sessions/${sessionId}/prompts`, {
+        body: JSON.stringify({ prompt }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        setSessionStatusText(`HTTP ${response.status}`);
+        return;
+      }
+
+      const result = sendPromptResponseSchema.parse(await response.json());
+      setMessages(result.messages);
+      setPromptText("");
+      setSessionStatusText(`Session: ${result.sessionId}`);
+    } catch (error) {
+      setSessionStatusText(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setIsSendingPrompt(false);
     }
   }
 
@@ -183,6 +225,29 @@ export default function HomeScreen() {
         <Text style={styles.status}>{sessionStatusText}</Text>
       </View>
 
+      <View style={styles.panel}>
+        <Text style={styles.statusLabel}>Prompt</Text>
+        <TextInput
+          multiline={true}
+          onChangeText={setPromptText}
+          placeholder="Send a prompt to the bridge"
+          style={[styles.input, styles.promptInput]}
+          value={promptText}
+        />
+        <Pressable
+          accessibilityRole="button"
+          disabled={!sessionId || isSendingPrompt}
+          onPress={sendPrompt}
+          style={({ pressed }) => [
+            styles.button,
+            !sessionId || isSendingPrompt ? styles.buttonDisabled : null,
+            pressed && sessionId && !isSendingPrompt ? styles.buttonPressed : null,
+          ]}
+        >
+          <Text style={styles.buttonText}>{isSendingPrompt ? "Sending" : "Send Prompt"}</Text>
+        </Pressable>
+      </View>
+
       <View style={styles.messages}>
         {messages.map((message) => (
           <View key={message.id} style={styles.message}>
@@ -196,9 +261,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  actions: {
-    gap: 10,
-  },
+  actions: { gap: 10 },
   button: {
     alignItems: "center",
     backgroundColor: "#2563eb",
@@ -207,17 +270,9 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 16,
   },
-  buttonDisabled: {
-    backgroundColor: "#94a3b8",
-  },
-  buttonPressed: {
-    backgroundColor: "#1d4ed8",
-  },
-  buttonText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  buttonDisabled: { backgroundColor: "#94a3b8" },
+  buttonPressed: { backgroundColor: "#1d4ed8" },
+  buttonText: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
   container: {
     backgroundColor: "#f8fafc",
     flexGrow: 1,
@@ -225,12 +280,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
   },
-  form: {
-    gap: 10,
-  },
-  header: {
-    gap: 6,
-  },
+  form: { gap: 10 },
+  header: { gap: 6 },
   input: {
     backgroundColor: "#ffffff",
     borderColor: "#cbd5e1",
@@ -241,11 +292,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 14,
   },
-  label: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  label: { color: "#334155", fontSize: 14, fontWeight: "600" },
   message: {
     backgroundColor: "#ffffff",
     borderColor: "#e2e8f0",
@@ -254,20 +301,9 @@ const styles = StyleSheet.create({
     gap: 6,
     padding: 14,
   },
-  messageContent: {
-    color: "#0f172a",
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  messageRole: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  messages: {
-    gap: 10,
-  },
+  messageContent: { color: "#0f172a", fontSize: 15, lineHeight: 21 },
+  messageRole: { color: "#64748b", fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
+  messages: { gap: 10 },
   panel: {
     backgroundColor: "#ffffff",
     borderColor: "#e2e8f0",
@@ -276,6 +312,7 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 16,
   },
+  promptInput: { minHeight: 96, paddingTop: 12, textAlignVertical: "top" },
   secondaryButton: {
     alignItems: "center",
     backgroundColor: "#ffffff",
@@ -286,34 +323,11 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 16,
   },
-  secondaryButtonDisabled: {
-    borderColor: "#cbd5e1",
-  },
-  secondaryButtonPressed: {
-    backgroundColor: "#eff6ff",
-  },
-  secondaryButtonText: {
-    color: "#1d4ed8",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  status: {
-    color: "#0f172a",
-    fontSize: 16,
-  },
-  statusLabel: {
-    color: "#64748b",
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-  },
-  subtitle: {
-    color: "#475569",
-    fontSize: 16,
-  },
-  title: {
-    color: "#0f172a",
-    fontSize: 30,
-    fontWeight: "700",
-  },
+  secondaryButtonDisabled: { borderColor: "#cbd5e1" },
+  secondaryButtonPressed: { backgroundColor: "#eff6ff" },
+  secondaryButtonText: { color: "#1d4ed8", fontSize: 16, fontWeight: "700" },
+  status: { color: "#0f172a", fontSize: 16 },
+  statusLabel: { color: "#64748b", fontSize: 13, fontWeight: "600", textTransform: "uppercase" },
+  subtitle: { color: "#475569", fontSize: 16 },
+  title: { color: "#0f172a", fontSize: 30, fontWeight: "700" },
 });

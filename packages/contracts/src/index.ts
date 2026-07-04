@@ -40,3 +40,16 @@ export const sessionMessagesResponseSchema = z.object({
 });
 
 export type SessionMessagesResponse = z.infer<typeof sessionMessagesResponseSchema>;
+
+export const sendPromptRequestSchema = z.object({
+  prompt: z.string().min(1),
+});
+
+export type SendPromptRequest = z.infer<typeof sendPromptRequestSchema>;
+
+export const sendPromptResponseSchema = z.object({
+  sessionId: z.string().min(1),
+  messages: z.array(messageSchema),
+});
+
+export type SendPromptResponse = z.infer<typeof sendPromptResponseSchema>;
