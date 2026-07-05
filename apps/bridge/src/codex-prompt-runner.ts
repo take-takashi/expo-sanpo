@@ -44,34 +44,47 @@ export class CodexPromptRunner implements PromptRunner {
     return "Session is ready. Codex CLI tmux session will be started on first prompt.";
   }
 
-  async runPrompt(sessionId: string, _prompt: string) {
+  async runPrompt(sessionId: string, prompt: string) {
     const tmuxSessionName = this.#getTmuxSessionName(sessionId);
 
     await this.#ensureSession(tmuxSessionName);
-    const output = await this.#capturePaneWhenReady(tmuxSessionName);
+    await this.#capturePaneUntilInputReady(tmuxSessionName);
+    await this.#execFile("tmux", ["send-keys", "-t", tmuxSessionName, "-l", prompt]);
+    await this.#delay(1000);
+    await this.#execFile("tmux", ["send-keys", "-t", tmuxSessionName, "Escape", "Enter"]);
+    await this.#delay(5000);
+
+    const output = await this.#capturePane(tmuxSessionName);
 
     return output || "Codex tmux pane is empty.";
   }
 
-  async #capturePaneWhenReady(tmuxSessionName: string) {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      await this.#delay(500);
-      const { stdout } = await this.#execFile("tmux", [
-        "capture-pane",
-        "-p",
-        "-t",
-        tmuxSessionName,
-        "-S",
-        "-40",
-      ]);
-      const output = stdout.trimEnd();
+  async #capturePane(tmuxSessionName: string) {
+    const { stdout } = await this.#execFile("tmux", [
+      "capture-pane",
+      "-p",
+      "-t",
+      tmuxSessionName,
+      "-S",
+      "-80",
+    ]);
 
-      if (output.length > 0) {
-        return output;
+    return stdout.trimEnd();
+  }
+
+  async #capturePaneUntilInputReady(tmuxSessionName: string) {
+    let lastOutput = "";
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await this.#delay(500);
+      lastOutput = await this.#capturePane(tmuxSessionName);
+
+      if (lastOutput.includes("Context")) {
+        return lastOutput;
       }
     }
 
-    return "";
+    return lastOutput;
   }
 
   async #ensureSession(tmuxSessionName: string) {

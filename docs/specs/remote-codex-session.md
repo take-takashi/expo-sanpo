@@ -60,7 +60,7 @@ iPhone アプリから母艦の Mac 上の tmux セッションに接続し、Co
 
 現時点では、iPhone アプリから Mac 側ブリッジへ接続し、`POST /sessions` でメモリ上のセッションを作成し、`POST /sessions/:id/prompts` で user message と mock assistant message を追加し、`GET /sessions/:id/messages` でメッセージ一覧を取得する。
 
-tmux との最小接続検証では、`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した Mac 側ブリッジが tmux 上の `cat` セッションへ入力し、`tmux capture-pane` の結果を assistant message として返す。Codex CLI の最小検証では、`EXPO_SANPO_PROMPT_DRIVER=codex` を指定した Mac 側ブリッジが tmux 上に `codex --no-alt-screen` を起動し、`tmux capture-pane` の結果を assistant message として返す。この段階では Codex CLI への prompt 自動送信はまだ行わない。
+tmux との最小接続検証では、`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した Mac 側ブリッジが tmux 上の `cat` セッションへ入力し、`tmux capture-pane` の結果を assistant message として返す。Codex CLI の最小検証では、`EXPO_SANPO_PROMPT_DRIVER=codex` を指定した Mac 側ブリッジが tmux 上に `codex --no-alt-screen` を起動し、`tmux send-keys` で prompt を入力し、Option+Enter 相当の `Escape` + `Enter` を送ってから `tmux capture-pane` の結果を assistant message として返す。現時点では完了判定は未実装であり、送信後に短く待ってから画面 capture を返す。
 
 ## 未確定事項
 
