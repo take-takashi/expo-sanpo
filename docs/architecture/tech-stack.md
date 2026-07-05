@@ -10,6 +10,7 @@
 | モバイルフレームワーク | Expo | 54.0.x | モバイルアプリケーション開発 | `apps/mobile` で利用する |
 | UI フレームワーク | React Native | 0.81.5 | iPhone アプリケーション開発 | Expo 経由で利用する |
 | ルーティング | Expo Router | 6.0.x | iPhone アプリの画面遷移 | `apps/mobile/src/app` にルートを置く |
+| 端末内保存 | AsyncStorage | 2.2.0 | Bridge URL などの非秘密設定の保存 | 会話履歴の正本にはしない |
 | 言語 | TypeScript | 5.9.3 | iPhone アプリと Mac 側ブリッジの実装 | ルートで共通設定を持つ |
 | サーバーフレームワーク | Hono | 4.10.7 | Mac 側ブリッジサーバー | Node.js Adapter を使う |
 | パッケージマネージャー | pnpm | 11.9.0 | Node.js 依存関係の管理 | git worktree 運用との相性を重視する |
@@ -36,6 +37,7 @@
 - Expo はプロジェクトの目的に含まれているため、モバイル開発の前提として扱う。
 - React Native は Expo で iPhone アプリを実装するために使う。
 - Expo Router は iPhone アプリの画面遷移をファイルベースで管理するために使う。
+- AsyncStorage は Bridge URL のような非秘密の端末内設定を保存するために使う。
 - TypeScript は iPhone アプリと Mac 側ブリッジの両方で型を共有しやすくするために使う。
 - Hono は Mac 側ブリッジサーバーを軽量に実装するために使う。
 - pnpm は git worktree 運用との相性を重視して使う。

@@ -40,6 +40,30 @@ describe("extractCodexPromptOutput", () => {
     ).toBe("• こんにちは。何を進めましょうか。");
   });
 
+  it("drops codex chrome that appears before the answer", () => {
+    expect(
+      extractCodexPromptOutput({
+        afterPrompt: [
+          readyScreen,
+          "",
+          "› Second prompt",
+          "",
+          "╭──────────────────────────────────────────────╮",
+          "│ >_ OpenAI Codex (v0.142.5)                   │",
+          "╰──────────────────────────────────────────────╯",
+          "",
+          "  Tip: Try the Codex App.",
+          "",
+          "• You have 4 usage limit resets available. Run /usage to use one.",
+          "",
+          "• This is the actual answer.",
+        ].join("\n"),
+        beforePrompt: readyScreen,
+        prompt: "Second prompt",
+      }),
+    ).toBe("• This is the actual answer.");
+  });
+
   it("drops redrawn startup text that remains after prefix trimming", () => {
     expect(
       extractCodexPromptOutput({

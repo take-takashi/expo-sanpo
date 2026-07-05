@@ -5,10 +5,21 @@ import {
   sessionMessagesResponseSchema,
   type Message,
 } from "@expo-sanpo/contracts";
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 const defaultBridgeUrl = "http://localhost:8787";
+const bridgeUrlStorageKey = "expo-sanpo.bridgeUrl";
 
 function normalizeBridgeUrl(bridgeUrl: string) {
   return bridgeUrl.trim().replace(/\/$/, "");
@@ -25,6 +36,47 @@ export default function HomeScreen() {
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingPrompt, setIsSendingPrompt] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSavedBridgeUrl() {
+      try {
+        const savedBridgeUrl = await AsyncStorage.getItem(bridgeUrlStorageKey);
+
+        if (isMounted && savedBridgeUrl) {
+          setBridgeUrl(savedBridgeUrl);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setHealthStatusText(error instanceof Error ? error.message : "Failed to load Bridge URL");
+        }
+      }
+    }
+
+    void loadSavedBridgeUrl();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  async function updateBridgeUrl(nextBridgeUrl: string) {
+    setBridgeUrl(nextBridgeUrl);
+
+    const normalizedBridgeUrl = normalizeBridgeUrl(nextBridgeUrl);
+
+    try {
+      if (normalizedBridgeUrl.length === 0) {
+        await AsyncStorage.removeItem(bridgeUrlStorageKey);
+        return;
+      }
+
+      await AsyncStorage.setItem(bridgeUrlStorageKey, normalizedBridgeUrl);
+    } catch (error) {
+      setHealthStatusText(error instanceof Error ? error.message : "Failed to save Bridge URL");
+    }
+  }
 
   function getBaseUrl() {
     const baseUrl = normalizeBridgeUrl(bridgeUrl);
@@ -155,108 +207,122 @@ export default function HomeScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <View style={styles.header}>
-        <Text style={styles.title}>expo-sanpo</Text>
-        <Text style={styles.subtitle}>Bridge session</Text>
-      </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={24}
+      style={styles.screen}
+    >
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>expo-sanpo</Text>
+          <Text style={styles.subtitle}>Bridge session</Text>
+        </View>
 
-      <View style={styles.form}>
-        <Text style={styles.label}>Bridge URL</Text>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          inputMode="url"
-          onChangeText={setBridgeUrl}
-          placeholder="http://192.168.1.10:8787"
-          style={styles.input}
-          value={bridgeUrl}
-        />
-        <Pressable
-          accessibilityRole="button"
-          disabled={isChecking}
-          onPress={checkBridgeHealth}
-          style={({ pressed }) => [
-            styles.button,
-            isChecking ? styles.buttonDisabled : null,
-            pressed && !isChecking ? styles.buttonPressed : null,
-          ]}
-        >
-          <Text style={styles.buttonText}>{isChecking ? "Checking" : "Check Health"}</Text>
-        </Pressable>
-      </View>
+        <View style={styles.form}>
+          <Text style={styles.label}>Bridge URL</Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            inputMode="url"
+            onChangeText={(nextBridgeUrl) => {
+              void updateBridgeUrl(nextBridgeUrl);
+            }}
+            placeholder="http://192.168.1.10:8787"
+            style={styles.input}
+            value={bridgeUrl}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={isChecking}
+            onPress={checkBridgeHealth}
+            style={({ pressed }) => [
+              styles.button,
+              isChecking ? styles.buttonDisabled : null,
+              pressed && !isChecking ? styles.buttonPressed : null,
+            ]}
+          >
+            <Text style={styles.buttonText}>{isChecking ? "Checking" : "Check Health"}</Text>
+          </Pressable>
+        </View>
 
-      <View style={styles.panel}>
-        <Text style={styles.statusLabel}>Health</Text>
-        <Text style={styles.status}>{healthStatusText}</Text>
-      </View>
+        <View style={styles.panel}>
+          <Text style={styles.statusLabel}>Health</Text>
+          <Text style={styles.status}>{healthStatusText}</Text>
+        </View>
 
-      <View style={styles.actions}>
-        <Pressable
-          accessibilityRole="button"
-          disabled={isCreatingSession}
-          onPress={createSession}
-          style={({ pressed }) => [
-            styles.button,
-            isCreatingSession ? styles.buttonDisabled : null,
-            pressed && !isCreatingSession ? styles.buttonPressed : null,
-          ]}
-        >
-          <Text style={styles.buttonText}>{isCreatingSession ? "Creating" : "Create Session"}</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          disabled={!sessionId || isLoadingMessages}
-          onPress={refreshMessages}
-          style={({ pressed }) => [
-            styles.secondaryButton,
-            !sessionId || isLoadingMessages ? styles.secondaryButtonDisabled : null,
-            pressed && sessionId && !isLoadingMessages ? styles.secondaryButtonPressed : null,
-          ]}
-        >
-          <Text style={styles.secondaryButtonText}>
-            {isLoadingMessages ? "Loading" : "Refresh Messages"}
-          </Text>
-        </Pressable>
-      </View>
+        <View style={styles.actions}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={isCreatingSession}
+            onPress={createSession}
+            style={({ pressed }) => [
+              styles.button,
+              isCreatingSession ? styles.buttonDisabled : null,
+              pressed && !isCreatingSession ? styles.buttonPressed : null,
+            ]}
+          >
+            <Text style={styles.buttonText}>
+              {isCreatingSession ? "Creating" : "Create Session"}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={!sessionId || isLoadingMessages}
+            onPress={refreshMessages}
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              !sessionId || isLoadingMessages ? styles.secondaryButtonDisabled : null,
+              pressed && sessionId && !isLoadingMessages ? styles.secondaryButtonPressed : null,
+            ]}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {isLoadingMessages ? "Loading" : "Refresh Messages"}
+            </Text>
+          </Pressable>
+        </View>
 
-      <View style={styles.panel}>
-        <Text style={styles.statusLabel}>Session</Text>
-        <Text style={styles.status}>{sessionStatusText}</Text>
-      </View>
+        <View style={styles.panel}>
+          <Text style={styles.statusLabel}>Session</Text>
+          <Text style={styles.status}>{sessionStatusText}</Text>
+        </View>
 
-      <View style={styles.panel}>
-        <Text style={styles.statusLabel}>Prompt</Text>
-        <TextInput
-          multiline={true}
-          onChangeText={setPromptText}
-          placeholder="Send a prompt to the bridge"
-          style={[styles.input, styles.promptInput]}
-          value={promptText}
-        />
-        <Pressable
-          accessibilityRole="button"
-          disabled={!sessionId || isSendingPrompt}
-          onPress={sendPrompt}
-          style={({ pressed }) => [
-            styles.button,
-            !sessionId || isSendingPrompt ? styles.buttonDisabled : null,
-            pressed && sessionId && !isSendingPrompt ? styles.buttonPressed : null,
-          ]}
-        >
-          <Text style={styles.buttonText}>{isSendingPrompt ? "Sending" : "Send Prompt"}</Text>
-        </Pressable>
-      </View>
+        <View style={styles.panel}>
+          <Text style={styles.statusLabel}>Prompt</Text>
+          <TextInput
+            multiline={true}
+            onChangeText={setPromptText}
+            placeholder="Send a prompt to the bridge"
+            style={[styles.input, styles.promptInput]}
+            value={promptText}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={!sessionId || isSendingPrompt}
+            onPress={sendPrompt}
+            style={({ pressed }) => [
+              styles.button,
+              !sessionId || isSendingPrompt ? styles.buttonDisabled : null,
+              pressed && sessionId && !isSendingPrompt ? styles.buttonPressed : null,
+            ]}
+          >
+            <Text style={styles.buttonText}>{isSendingPrompt ? "Sending" : "Send Prompt"}</Text>
+          </Pressable>
+        </View>
 
-      <View style={styles.messages}>
-        {messages.map((message) => (
-          <View key={message.id} style={styles.message}>
-            <Text style={styles.messageRole}>{message.role}</Text>
-            <Text style={styles.messageContent}>{message.content}</Text>
-          </View>
-        ))}
-      </View>
-    </ScrollView>
+        <View style={styles.messages}>
+          {messages.map((message) => (
+            <View key={message.id} style={styles.message}>
+              <Text style={styles.messageRole}>{message.role}</Text>
+              <Text style={styles.messageContent}>{message.content}</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -279,6 +345,7 @@ const styles = StyleSheet.create({
     gap: 18,
     justifyContent: "center",
     padding: 24,
+    paddingBottom: 64,
   },
   form: { gap: 10 },
   header: { gap: 6 },
@@ -313,6 +380,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   promptInput: { minHeight: 96, paddingTop: 12, textAlignVertical: "top" },
+  screen: { backgroundColor: "#f8fafc", flex: 1 },
   secondaryButton: {
     alignItems: "center",
     backgroundColor: "#ffffff",

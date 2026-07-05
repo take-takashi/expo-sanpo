@@ -37,6 +37,7 @@ export function extractCodexPromptOutput({
   }
 
   output = stripPromptEcho(output, prompt);
+  output = stripLeadingCodexChrome(output);
   output = stripTrailingInputPrompt(output);
 
   return output.trim();
@@ -187,6 +188,21 @@ function stripPromptEcho(output: string, prompt: string) {
   }
 
   return trimmed;
+}
+
+function stripLeadingCodexChrome(output: string) {
+  const lines = output.split("\n");
+  const responseStartIndex = lines.findIndex((line) => {
+    const trimmedLine = line.trim();
+
+    return trimmedLine.startsWith("• ") && !trimmedLine.startsWith("• You have ");
+  });
+
+  if (responseStartIndex < 0) {
+    return output;
+  }
+
+  return lines.slice(responseStartIndex).join("\n");
 }
 
 function isCodexOutputInProgress(output: string) {
