@@ -60,13 +60,13 @@ iPhone アプリから母艦の Mac 上の tmux セッションに接続し、Co
 
 現時点では、iPhone アプリから Mac 側ブリッジへ接続し、`POST /sessions` でメモリ上のセッションを作成し、`POST /sessions/:id/prompts` で user message と mock assistant message を追加し、`GET /sessions/:id/messages` でメッセージ一覧を取得する。
 
-tmux との最小接続検証では、`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した Mac 側ブリッジが tmux 上の `cat` セッションへ入力し、`tmux capture-pane` の結果を assistant message として返す。Codex CLI の最小検証では、`EXPO_SANPO_PROMPT_DRIVER=codex` を指定した Mac 側ブリッジが tmux 上に `codex --no-alt-screen` を起動し、`tmux send-keys` で prompt を入力し、Option+Enter 相当の `Escape` + `Enter` を送ってから `tmux capture-pane` の結果を assistant message として返す。現時点では完了判定は未実装であり、送信後に短く待ってから画面 capture を返す。
+tmux との最小接続検証では、`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した Mac 側ブリッジが tmux 上の `cat` セッションへ入力し、`tmux capture-pane` の結果を assistant message として返す。Codex CLI の最小検証では、`EXPO_SANPO_PROMPT_DRIVER=codex` を指定した Mac 側ブリッジが tmux 上に `codex --no-alt-screen` を起動し、`tmux send-keys` で prompt を入力し、設定された送信キーを送ってから、送信前後の `tmux capture-pane` 差分を assistant message として返す。送信キーはデフォルトで Option+Enter 相当の `Escape` + `Enter` とし、Mac 側の Codex CLI 設定に合わせて差し替えられる。現時点では完了判定は未実装であり、送信後に短く待ってから画面 capture を返す。
 
 ## 未確定事項
 
 - tmux セッション名の命名規則。
 - Codex CLI が未起動の場合に自動起動するか、ユーザーに確認するか。
-- プロンプト送信時に Enter を自動送信するか、送信前確認を入れるか。
+- プロンプト送信時のキー列をアプリ設定、Mac 側設定ファイル、環境変数のどれで管理するか。
 - 出力取得は初期検証では `tmux capture-pane` を使い、最終的には `tmux -CC` の control mode を使うか。
 - Codex CLI の完了判定をどのように行うか。
 - TTS の読み上げ対象を最終応答だけにするか、途中出力も対象にするか。
