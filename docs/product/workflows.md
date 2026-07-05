@@ -23,7 +23,7 @@ flowchart TD
     WaitResult[応答を待つ]
     ShowResult[応答を表示する]
     TtsEnabled{読み上げが有効か}
-    Speak[expo-speech で応答を読み上げる]
+    Speak[device TTS モードでは expo-speech で応答を読み上げる]
     Continue{会話または指示を続けるか}
     End([終了])
 

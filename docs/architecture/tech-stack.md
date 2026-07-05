@@ -27,7 +27,7 @@
 | セッション管理 | tmux | TBD | Codex CLI の実行セッションを維持する | Mac 側の前提ツール |
 | CLI | Codex CLI | TBD | 母艦の Mac 上で作業を実行する | tmux 上で起動する |
 | VPN | Tailscale | TBD | iPhone と Mac の到達性を確保する | プロジェクトの実装対象外 |
-| TTS | irodori-TTS または TBD | TBD | Codex CLI の結果を読み上げる | 候補段階 |
+| TTS | expo-speech | 14.0.x | iPhone 側で Codex CLI の結果を読み上げる | 初期 PoC の device モードで利用する |
 | CI | TBD | TBD | TBD | TBD |
 | デプロイ | TBD | TBD | TBD | TBD |
 
@@ -48,6 +48,7 @@
 - Zod は iPhone アプリと Mac 側ブリッジの API 契約を共有し、実行時検証を行うために使う。
 - tmux は SSH 接続先で Codex CLI のセッションを維持するために使う。
 - Tailscale は VPN として利用するが、このプロジェクトでは構築や管理を対象外にする。
+- expo-speech は Expo Go で読み上げ体験を先に検証するために使う。将来的な Mac 側音声生成は remote TTS モードとして再検討する。
 - その他の技術は、実装方針が決まり次第、この文書に記録する。
 
 ## バージョン管理方針

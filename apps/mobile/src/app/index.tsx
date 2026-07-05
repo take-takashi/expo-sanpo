@@ -6,6 +6,7 @@ import {
   type Message,
 } from "@expo-sanpo/contracts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Speech from "expo-speech";
 import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -20,9 +21,34 @@ import {
 
 const defaultBridgeUrl = "http://localhost:8787";
 const bridgeUrlStorageKey = "expo-sanpo.bridgeUrl";
+const ttsModeStorageKey = "expo-sanpo.ttsMode";
+
+type TtsMode = "off" | "device" | "remote";
+
+const defaultTtsMode: TtsMode = "off";
+const selectableTtsModes: TtsMode[] = ["off", "device"];
 
 function normalizeBridgeUrl(bridgeUrl: string) {
   return bridgeUrl.trim().replace(/\/$/, "");
+}
+
+function parseTtsMode(value: string | null): TtsMode {
+  if (value === "device" || value === "remote" || value === "off") {
+    return value;
+  }
+
+  return defaultTtsMode;
+}
+
+function getSpeakableAssistantText(message: Message) {
+  return message.content
+    .replace(/^\s*[•>_-]+\s*/u, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function getLatestAssistantMessage(nextMessages: Message[]) {
+  return nextMessages.findLast((message) => message.role === "assistant") ?? null;
 }
 
 export default function HomeScreen() {
@@ -36,30 +62,109 @@ export default function HomeScreen() {
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingPrompt, setIsSendingPrompt] = useState(false);
+  const [ttsMode, setTtsMode] = useState<TtsMode>(defaultTtsMode);
+  const [ttsStatusText, setTtsStatusText] = useState("TTS off");
+
+  const ttsHintText =
+    Platform.OS === "ios"
+      ? "iPhone silent mode must be off for expo-speech in Expo Go."
+      : "Device TTS uses expo-speech on this device.";
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadSavedBridgeUrl() {
+    async function loadSavedSettings() {
       try {
-        const savedBridgeUrl = await AsyncStorage.getItem(bridgeUrlStorageKey);
+        const [savedBridgeUrl, savedTtsMode] = await Promise.all([
+          AsyncStorage.getItem(bridgeUrlStorageKey),
+          AsyncStorage.getItem(ttsModeStorageKey),
+        ]);
 
-        if (isMounted && savedBridgeUrl) {
+        if (!isMounted) {
+          return;
+        }
+
+        if (savedBridgeUrl) {
           setBridgeUrl(savedBridgeUrl);
         }
+
+        const nextTtsMode = parseTtsMode(savedTtsMode);
+        setTtsMode(nextTtsMode);
+        setTtsStatusText(nextTtsMode === "device" ? "TTS device" : "TTS off");
       } catch (error) {
         if (isMounted) {
-          setHealthStatusText(error instanceof Error ? error.message : "Failed to load Bridge URL");
+          setHealthStatusText(error instanceof Error ? error.message : "Failed to load settings");
         }
       }
     }
 
-    void loadSavedBridgeUrl();
+    void loadSavedSettings();
 
     return () => {
       isMounted = false;
     };
   }, []);
+
+  async function updateTtsMode(nextTtsMode: TtsMode) {
+    setTtsMode(nextTtsMode);
+    Speech.stop();
+
+    try {
+      await AsyncStorage.setItem(ttsModeStorageKey, nextTtsMode);
+      setTtsStatusText(nextTtsMode === "device" ? "TTS device" : "TTS off");
+    } catch (error) {
+      setTtsStatusText(error instanceof Error ? error.message : "Failed to save TTS mode");
+    }
+  }
+
+  function speakText(text: string) {
+    if (ttsMode === "off") {
+      return;
+    }
+
+    if (ttsMode === "remote") {
+      setTtsStatusText("Remote TTS is not implemented yet");
+      return;
+    }
+
+    const speakableText = text.trim();
+
+    if (speakableText.length === 0) {
+      setTtsStatusText("No text to speak");
+      return;
+    }
+
+    Speech.stop();
+    Speech.speak(speakableText, {
+      language: "ja-JP",
+      onDone: () => {
+        setTtsStatusText("TTS device");
+      },
+      onError: () => {
+        setTtsStatusText("TTS failed");
+      },
+      onStart: () => {
+        setTtsStatusText("Speaking");
+      },
+    });
+  }
+
+  function speakAssistantMessage(message: Message) {
+    speakText(getSpeakableAssistantText(message));
+  }
+
+  function speakLatestAssistantMessage(nextMessages: Message[]) {
+    const latestAssistantMessage = getLatestAssistantMessage(nextMessages);
+
+    if (latestAssistantMessage) {
+      speakAssistantMessage(latestAssistantMessage);
+    }
+  }
+
+  function stopSpeaking() {
+    Speech.stop();
+    setTtsStatusText(ttsMode === "device" ? "TTS device" : "TTS off");
+  }
 
   async function updateBridgeUrl(nextBridgeUrl: string) {
     setBridgeUrl(nextBridgeUrl);
@@ -162,6 +267,7 @@ export default function HomeScreen() {
     }
 
     setIsSendingPrompt(true);
+    Speech.stop();
 
     try {
       const baseUrl = getBaseUrl();
@@ -178,6 +284,7 @@ export default function HomeScreen() {
 
       const result = sendPromptResponseSchema.parse(await response.json());
       setMessages(result.messages);
+      speakLatestAssistantMessage(result.messages);
       setPromptText("");
       setSessionStatusText(`Session: ${result.sessionId}`);
     } catch (error) {
@@ -291,6 +398,82 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.panel}>
+          <Text style={styles.statusLabel}>TTS</Text>
+          <View style={styles.segmentedControl}>
+            {selectableTtsModes.map((mode) => {
+              const isSelected = ttsMode === mode;
+
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  key={mode}
+                  onPress={() => {
+                    void updateTtsMode(mode);
+                  }}
+                  style={[styles.segmentButton, isSelected ? styles.segmentButtonSelected : null]}
+                >
+                  <Text
+                    style={[
+                      styles.segmentButtonText,
+                      isSelected ? styles.segmentButtonTextSelected : null,
+                    ]}
+                  >
+                    {mode === "device" ? "Device" : "Off"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={styles.actions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={ttsMode !== "device"}
+              onPress={() => {
+                speakText("音声テストです。");
+              }}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                ttsMode !== "device" ? styles.secondaryButtonDisabled : null,
+                pressed && ttsMode === "device" ? styles.secondaryButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.secondaryButtonText}>Test Voice</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={ttsMode !== "device"}
+              onPress={() => {
+                const latestAssistantMessage = getLatestAssistantMessage(messages);
+
+                if (latestAssistantMessage) {
+                  speakAssistantMessage(latestAssistantMessage);
+                }
+              }}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                ttsMode !== "device" ? styles.secondaryButtonDisabled : null,
+                pressed && ttsMode === "device" ? styles.secondaryButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.secondaryButtonText}>Read Latest</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={stopSpeaking}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                pressed ? styles.secondaryButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.secondaryButtonText}>Stop</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.status}>{ttsStatusText}</Text>
+          <Text style={styles.hint}>{ttsHintText}</Text>
+        </View>
+
+        <View style={styles.panel}>
           <Text style={styles.statusLabel}>Prompt</Text>
           <TextInput
             multiline={true}
@@ -349,6 +532,7 @@ const styles = StyleSheet.create({
   },
   form: { gap: 10 },
   header: { gap: 6 },
+  hint: { color: "#64748b", fontSize: 13, lineHeight: 18 },
   input: {
     backgroundColor: "#ffffff",
     borderColor: "#cbd5e1",
@@ -381,6 +565,23 @@ const styles = StyleSheet.create({
   },
   promptInput: { minHeight: 96, paddingTop: 12, textAlignVertical: "top" },
   screen: { backgroundColor: "#f8fafc", flex: 1 },
+  segmentButton: {
+    alignItems: "center",
+    borderRadius: 6,
+    flex: 1,
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  segmentButtonSelected: { backgroundColor: "#2563eb" },
+  segmentButtonText: { color: "#334155", fontSize: 14, fontWeight: "700" },
+  segmentButtonTextSelected: { color: "#ffffff" },
+  segmentedControl: {
+    backgroundColor: "#f1f5f9",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 4,
+    padding: 4,
+  },
   secondaryButton: {
     alignItems: "center",
     backgroundColor: "#ffffff",
