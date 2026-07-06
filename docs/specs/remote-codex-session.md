@@ -42,6 +42,8 @@ iPhone アプリから母艦の Mac 上の tmux セッションに接続し、Co
 
 - アプリは、SSH 接続が切れても tmux セッション上の Codex CLI 実行を維持できる。
 - アプリは、再接続後に既存の tmux セッションへ戻れる。
+- アプリは、同じ bridge プロセス内のセッション一覧を表示し、セッション名、最終更新時刻、最新メッセージ要約で見分けられる。
+- アプリは、選択中のセッション名を編集できる。
 - アプリは、ユーザーが入力したプロンプトを Codex CLI に送信できる。
 - アプリは、プロンプト入力時に iPhone のキーボードで入力欄が隠れないように表示できる。
 - アプリは、Codex CLI の結果をユーザーが読める形で表示できる。
@@ -62,7 +64,7 @@ iPhone アプリから母艦の Mac 上の tmux セッションに接続し、Co
 
 ## 初期 PoC
 
-現時点では、iPhone アプリから Mac 側ブリッジへ接続し、`POST /sessions` でメモリ上のセッションを作成し、`POST /sessions/:id/prompts` で user message と mock assistant message を追加し、`GET /sessions/:id/messages` でメッセージ一覧を取得する。
+現時点では、iPhone アプリから Mac 側ブリッジへ接続し、`POST /sessions` でメモリ上のセッションを作成し、`GET /sessions` で同じ bridge プロセス内の既存セッション一覧を名前、最終更新時刻、最新メッセージ要約とともに取得し、`PATCH /sessions/:id` でセッション名を更新し、`POST /sessions/:id/prompts` で user message と mock assistant message を追加し、`GET /sessions/:id/messages` でメッセージ一覧を取得する。iPhone アプリは前回選択した sessionId を非秘密の端末内設定として保存し、同じ bridge プロセスが生きていれば既存セッションへ戻れる。
 
 tmux との最小接続検証では、`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した Mac 側ブリッジが tmux 上の `cat` セッションへ入力し、`tmux capture-pane` の結果を assistant message として返す。Codex CLI の最小検証では、`EXPO_SANPO_PROMPT_DRIVER=codex` を指定した Mac 側ブリッジが tmux 上に `codex --no-alt-screen` を起動し、`tmux send-keys` で prompt を入力し、設定された送信キーを送ってから、送信前後の `tmux capture-pane` 差分を assistant message として返す。送信キーはデフォルトで Option+Enter 相当の `Escape` + `Enter` とし、Mac 側の Codex CLI 設定に合わせて差し替えられる。現時点では完了判定は未実装であり、送信後に短く待ってから画面 capture を返す。
 

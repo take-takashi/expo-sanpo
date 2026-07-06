@@ -9,10 +9,19 @@ export type BridgeHealthResponse = z.infer<typeof bridgeHealthResponseSchema>;
 
 export const sessionSchema = z.object({
   id: z.string().min(1),
+  name: z.string().min(1),
   createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  latestMessageSummary: z.string(),
 });
 
 export type Session = z.infer<typeof sessionSchema>;
+
+export const listSessionsResponseSchema = z.object({
+  sessions: z.array(sessionSchema),
+});
+
+export type ListSessionsResponse = z.infer<typeof listSessionsResponseSchema>;
 
 export const messageRoleSchema = z.enum(["system", "user", "assistant"]);
 
@@ -33,6 +42,18 @@ export const createSessionResponseSchema = z.object({
 });
 
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
+
+export const updateSessionRequestSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+});
+
+export type UpdateSessionRequest = z.infer<typeof updateSessionRequestSchema>;
+
+export const updateSessionResponseSchema = z.object({
+  session: sessionSchema,
+});
+
+export type UpdateSessionResponse = z.infer<typeof updateSessionResponseSchema>;
 
 export const sessionMessagesResponseSchema = z.object({
   sessionId: z.string().min(1),

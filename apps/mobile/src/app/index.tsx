@@ -1,9 +1,12 @@
 import {
   bridgeHealthResponseSchema,
   createSessionResponseSchema,
+  listSessionsResponseSchema,
   sendPromptResponseSchema,
   sessionMessagesResponseSchema,
+  updateSessionResponseSchema,
   type Message,
+  type Session,
 } from "@expo-sanpo/contracts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Speech from "expo-speech";
@@ -22,6 +25,7 @@ import {
 const defaultBridgeUrl = "http://localhost:8787";
 const bridgeUrlStorageKey = "expo-sanpo.bridgeUrl";
 const ttsModeStorageKey = "expo-sanpo.ttsMode";
+const sessionIdStorageKey = "expo-sanpo.sessionId";
 
 type TtsMode = "off" | "device" | "remote";
 
@@ -51,38 +55,67 @@ function getLatestAssistantMessage(nextMessages: Message[]) {
   return nextMessages.findLast((message) => message.role === "assistant") ?? null;
 }
 
+function summarizeMessageContent(content: string) {
+  const summary = content.replace(/\s+/g, " ").trim();
+
+  if (summary.length <= 80) {
+    return summary;
+  }
+
+  return `${summary.slice(0, 79)}...`;
+}
+
+function formatSessionTimestamp(value: string) {
+  return value.slice(0, 16).replace("T", " ");
+}
+
 export default function HomeScreen() {
   const [bridgeUrl, setBridgeUrl] = useState(defaultBridgeUrl);
   const [healthStatusText, setHealthStatusText] = useState("Not checked");
   const [sessionStatusText, setSessionStatusText] = useState("No session");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionNameDraft, setSessionNameDraft] = useState("");
   const [promptText, setPromptText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isChecking, setIsChecking] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isUpdatingSessionName, setIsUpdatingSessionName] = useState(false);
   const [isSendingPrompt, setIsSendingPrompt] = useState(false);
   const [ttsMode, setTtsMode] = useState<TtsMode>(defaultTtsMode);
   const [ttsStatusText, setTtsStatusText] = useState("TTS off");
 
+  const selectedSession = sessions.find((session) => session.id === sessionId) ?? null;
+  const currentSessionLabel = selectedSession ? selectedSession.name : sessionStatusText;
   const ttsHintText =
     Platform.OS === "ios"
       ? "iPhone silent mode must be off for expo-speech in Expo Go."
       : "Device TTS uses expo-speech on this device.";
 
   useEffect(() => {
+    if (selectedSession) {
+      setSessionNameDraft(selectedSession.name);
+    }
+  }, [selectedSession]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadSavedSettings() {
       try {
-        const [savedBridgeUrl, savedTtsMode] = await Promise.all([
+        const [savedBridgeUrl, savedTtsMode, savedSessionId] = await Promise.all([
           AsyncStorage.getItem(bridgeUrlStorageKey),
           AsyncStorage.getItem(ttsModeStorageKey),
+          AsyncStorage.getItem(sessionIdStorageKey),
         ]);
 
         if (!isMounted) {
           return;
         }
+
+        const restoredBridgeUrl = savedBridgeUrl || defaultBridgeUrl;
 
         if (savedBridgeUrl) {
           setBridgeUrl(savedBridgeUrl);
@@ -91,9 +124,55 @@ export default function HomeScreen() {
         const nextTtsMode = parseTtsMode(savedTtsMode);
         setTtsMode(nextTtsMode);
         setTtsStatusText(nextTtsMode === "device" ? "TTS device" : "TTS off");
+
+        const baseUrl = normalizeBridgeUrl(restoredBridgeUrl);
+
+        if (baseUrl.length > 0) {
+          try {
+            const sessionsResponse = await fetch(`${baseUrl}/sessions`);
+
+            if (sessionsResponse.ok) {
+              const sessionList = listSessionsResponseSchema.parse(await sessionsResponse.json());
+              setSessions(sessionList.sessions);
+            }
+          } catch {
+            // 起動時の自動更新に失敗しても、手動の接続確認と再読み込みを残す。
+          }
+        }
+
+        if (savedSessionId) {
+          setSessionId(savedSessionId);
+          setSessionStatusText(`Session: ${savedSessionId}`);
+
+          if (baseUrl.length > 0) {
+            setIsLoadingMessages(true);
+            const response = await fetch(`${baseUrl}/sessions/${savedSessionId}/messages`);
+
+            if (response.status === 404) {
+              await AsyncStorage.removeItem(sessionIdStorageKey);
+              setSessionId(null);
+              setMessages([]);
+              setSessionStatusText("Saved session was not found on bridge");
+              setIsLoadingMessages(false);
+              return;
+            }
+
+            if (!response.ok) {
+              setSessionStatusText(`HTTP ${response.status}`);
+              setIsLoadingMessages(false);
+              return;
+            }
+
+            const sessionMessages = sessionMessagesResponseSchema.parse(await response.json());
+            setMessages(sessionMessages.messages);
+            setSessionStatusText(`Session: ${sessionMessages.sessionId}`);
+            setIsLoadingMessages(false);
+          }
+        }
       } catch (error) {
         if (isMounted) {
           setHealthStatusText(error instanceof Error ? error.message : "Failed to load settings");
+          setIsLoadingMessages(false);
         }
       }
     }
@@ -104,6 +183,23 @@ export default function HomeScreen() {
       isMounted = false;
     };
   }, []);
+
+  function upsertSession(nextSession: Session) {
+    setSessions((currentSessions) => [
+      ...currentSessions.filter((session) => session.id !== nextSession.id),
+      nextSession,
+    ]);
+  }
+
+  async function fetchSessions(baseUrl: string) {
+    const response = await fetch(`${baseUrl}/sessions`);
+
+    if (!response.ok) {
+      throw new Error(`Sessions HTTP ${response.status}`);
+    }
+
+    return listSessionsResponseSchema.parse(await response.json()).sessions;
+  }
 
   async function updateTtsMode(nextTtsMode: TtsMode) {
     setTtsMode(nextTtsMode);
@@ -207,6 +303,7 @@ export default function HomeScreen() {
 
       const health = bridgeHealthResponseSchema.parse(await response.json());
       setHealthStatusText(`${health.service}: ${health.status}`);
+      await loadSessions({ silent: true });
     } catch (error) {
       setHealthStatusText(error instanceof Error ? error.message : "Unknown error");
     } finally {
@@ -230,13 +327,108 @@ export default function HomeScreen() {
       }
 
       const created = createSessionResponseSchema.parse(await response.json());
-      setSessionId(created.session.id);
-      setSessionStatusText(`Session: ${created.session.id}`);
-      await loadMessages(baseUrl, created.session.id);
+      upsertSession(created.session);
+      await selectSession(baseUrl, created.session.id);
+      await loadSessions({ silent: true });
     } catch (error) {
       setSessionStatusText(error instanceof Error ? error.message : "Unknown error");
     } finally {
       setIsCreatingSession(false);
+    }
+  }
+
+  async function loadSessions(options: { silent?: boolean } = {}) {
+    setIsLoadingSessions(true);
+
+    if (!options.silent) {
+      setSessionStatusText("Loading sessions...");
+    }
+
+    try {
+      const sessionList = await fetchSessions(getBaseUrl());
+      setSessions(sessionList);
+
+      if (!options.silent) {
+        setSessionStatusText(
+          sessionList.length === 0
+            ? "No sessions on bridge"
+            : `${sessionList.length} session(s) on bridge`,
+        );
+      }
+    } catch (error) {
+      setSessionStatusText(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }
+
+  async function selectSession(baseUrl: string, targetSessionId: string) {
+    setSessionId(targetSessionId);
+
+    try {
+      await AsyncStorage.setItem(sessionIdStorageKey, targetSessionId);
+    } catch (error) {
+      setSessionStatusText(error instanceof Error ? error.message : "Failed to save session");
+      return;
+    }
+
+    await loadMessages(baseUrl, targetSessionId);
+  }
+
+  async function reconnectSession(targetSessionId: string) {
+    try {
+      await selectSession(getBaseUrl(), targetSessionId);
+      await loadSessions({ silent: true });
+    } catch (error) {
+      setSessionStatusText(error instanceof Error ? error.message : "Unknown error");
+    }
+  }
+
+  async function updateSessionName() {
+    if (!sessionId) {
+      setSessionStatusText("No session");
+      return;
+    }
+
+    const nextName = sessionNameDraft.trim();
+
+    if (nextName.length === 0) {
+      setSessionStatusText("Session name is required");
+      return;
+    }
+
+    setIsUpdatingSessionName(true);
+
+    try {
+      const response = await fetch(`${getBaseUrl()}/sessions/${sessionId}`, {
+        body: JSON.stringify({ name: nextName }),
+        headers: { "content-type": "application/json" },
+        method: "PATCH",
+      });
+
+      if (response.status === 404) {
+        await AsyncStorage.removeItem(sessionIdStorageKey);
+        setSessionId(null);
+        setMessages([]);
+        setSessionStatusText("Session was not found on bridge");
+        await loadSessions({ silent: true });
+        return;
+      }
+
+      if (!response.ok) {
+        setSessionStatusText(`HTTP ${response.status}`);
+        return;
+      }
+
+      const updated = updateSessionResponseSchema.parse(await response.json());
+      upsertSession(updated.session);
+      setSessionNameDraft(updated.session.name);
+      setSessionStatusText(`Session renamed: ${updated.session.name}`);
+      await loadSessions({ silent: true });
+    } catch (error) {
+      setSessionStatusText(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setIsUpdatingSessionName(false);
     }
   }
 
@@ -277,13 +469,39 @@ export default function HomeScreen() {
         method: "POST",
       });
 
+      if (response.status === 404) {
+        await AsyncStorage.removeItem(sessionIdStorageKey);
+        setSessionId(null);
+        setMessages([]);
+        setSessionStatusText("Session was not found on bridge");
+        await loadSessions({ silent: true });
+        return;
+      }
+
       if (!response.ok) {
         setSessionStatusText(`HTTP ${response.status}`);
         return;
       }
 
       const result = sendPromptResponseSchema.parse(await response.json());
+      const latestAssistantMessage = getLatestAssistantMessage(result.messages);
       setMessages(result.messages);
+
+      if (latestAssistantMessage) {
+        setSessions((currentSessions) =>
+          currentSessions.map((session) =>
+            session.id === result.sessionId
+              ? {
+                  ...session,
+                  updatedAt: latestAssistantMessage.createdAt,
+                  latestMessageSummary: summarizeMessageContent(latestAssistantMessage.content),
+                }
+              : session,
+          ),
+        );
+      }
+
+      await loadSessions({ silent: true });
       speakLatestAssistantMessage(result.messages);
       setPromptText("");
       setSessionStatusText(`Session: ${result.sessionId}`);
@@ -299,6 +517,15 @@ export default function HomeScreen() {
 
     try {
       const response = await fetch(`${baseUrl}/sessions/${targetSessionId}/messages`);
+
+      if (response.status === 404) {
+        await AsyncStorage.removeItem(sessionIdStorageKey);
+        setSessionId(null);
+        setMessages([]);
+        setSessionStatusText("Session was not found on bridge");
+        await loadSessions({ silent: true });
+        return;
+      }
 
       if (!response.ok) {
         setSessionStatusText(`HTTP ${response.status}`);
@@ -328,6 +555,8 @@ export default function HomeScreen() {
           <Text style={styles.title}>expo-sanpo</Text>
           <Text style={styles.subtitle}>Bridge session</Text>
         </View>
+
+        <Text style={styles.sectionHeading}>Connection</Text>
 
         <View style={styles.form}>
           <Text style={styles.label}>Bridge URL</Text>
@@ -361,6 +590,8 @@ export default function HomeScreen() {
           <Text style={styles.status}>{healthStatusText}</Text>
         </View>
 
+        <Text style={styles.sectionHeading}>Bridge Sessions</Text>
+
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
@@ -374,6 +605,22 @@ export default function HomeScreen() {
           >
             <Text style={styles.buttonText}>
               {isCreatingSession ? "Creating" : "Create Session"}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={isLoadingSessions}
+            onPress={() => {
+              void loadSessions();
+            }}
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              isLoadingSessions ? styles.secondaryButtonDisabled : null,
+              pressed && !isLoadingSessions ? styles.secondaryButtonPressed : null,
+            ]}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {isLoadingSessions ? "Loading" : "Reload Sessions"}
             </Text>
           </Pressable>
           <Pressable
@@ -393,9 +640,81 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.panel}>
-          <Text style={styles.statusLabel}>Session</Text>
-          <Text style={styles.status}>{sessionStatusText}</Text>
+          <Text style={styles.statusLabel}>Current Session</Text>
+          <Text style={styles.status}>{currentSessionLabel}</Text>
+          {selectedSession ? (
+            <>
+              <Text style={styles.sessionItemMeta}>
+                Updated {formatSessionTimestamp(selectedSession.updatedAt)}
+              </Text>
+              <TextInput
+                autoCorrect={false}
+                onChangeText={setSessionNameDraft}
+                placeholder="Session name"
+                style={styles.input}
+                value={sessionNameDraft}
+              />
+              <Pressable
+                accessibilityRole="button"
+                disabled={isUpdatingSessionName}
+                onPress={updateSessionName}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  isUpdatingSessionName ? styles.secondaryButtonDisabled : null,
+                  pressed && !isUpdatingSessionName ? styles.secondaryButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.secondaryButtonText}>
+                  {isUpdatingSessionName ? "Saving" : "Save Name"}
+                </Text>
+              </Pressable>
+            </>
+          ) : null}
         </View>
+
+        {sessions.length === 0 && !isLoadingSessions ? (
+          <View style={styles.emptyPanel}>
+            <Text style={styles.emptyTitle}>No bridge sessions</Text>
+            <Text style={styles.emptyText}>Create a session or check the bridge connection.</Text>
+          </View>
+        ) : null}
+
+        {sessions.length > 0 ? (
+          <View style={styles.sessionList}>
+            {sessions.map((session) => {
+              const isSelected = session.id === sessionId;
+
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  key={session.id}
+                  onPress={() => {
+                    void reconnectSession(session.id);
+                  }}
+                  style={({ pressed }) => [
+                    styles.sessionItem,
+                    isSelected ? styles.sessionItemSelected : null,
+                    pressed ? styles.sessionItemPressed : null,
+                  ]}
+                >
+                  <Text style={styles.sessionItemTitle} numberOfLines={1}>
+                    {session.name}
+                  </Text>
+                  <Text style={styles.sessionItemSummary} numberOfLines={2}>
+                    {session.latestMessageSummary}
+                  </Text>
+                  <Text style={styles.sessionItemMeta}>
+                    Updated {formatSessionTimestamp(session.updatedAt)}
+                  </Text>
+                  <Text style={styles.sessionItemId} numberOfLines={1}>
+                    {session.id}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
 
         <View style={styles.panel}>
           <Text style={styles.statusLabel}>TTS</Text>
@@ -473,6 +792,8 @@ export default function HomeScreen() {
           <Text style={styles.hint}>{ttsHintText}</Text>
         </View>
 
+        <Text style={styles.sectionHeading}>Conversation</Text>
+
         <View style={styles.panel}>
           <Text style={styles.statusLabel}>Prompt</Text>
           <TextInput
@@ -496,14 +817,40 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.messages}>
-          {messages.map((message) => (
-            <View key={message.id} style={styles.message}>
-              <Text style={styles.messageRole}>{message.role}</Text>
-              <Text style={styles.messageContent}>{message.content}</Text>
-            </View>
-          ))}
-        </View>
+        {messages.length === 0 ? (
+          <View style={styles.emptyPanel}>
+            <Text style={styles.emptyTitle}>No messages</Text>
+            <Text style={styles.emptyText}>
+              Select or create a session to start a conversation.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.messages}>
+            {messages.map((message) => {
+              const isUser = message.role === "user";
+              const isAssistant = message.role === "assistant";
+
+              return (
+                <View
+                  key={message.id}
+                  style={[
+                    styles.message,
+                    isUser ? styles.messageUser : null,
+                    isAssistant ? styles.messageAssistant : null,
+                  ]}
+                >
+                  <View style={styles.messageHeader}>
+                    <Text style={styles.messageRole}>{message.role}</Text>
+                    <Text style={styles.messageTime}>
+                      {formatSessionTimestamp(message.createdAt)}
+                    </Text>
+                  </View>
+                  <Text style={styles.messageContent}>{message.content}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -530,6 +877,17 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingBottom: 64,
   },
+  emptyPanel: {
+    backgroundColor: "#f8fafc",
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    borderStyle: "dashed",
+    borderWidth: 1,
+    gap: 4,
+    padding: 16,
+  },
+  emptyText: { color: "#64748b", fontSize: 14, lineHeight: 20 },
+  emptyTitle: { color: "#334155", fontSize: 15, fontWeight: "700" },
   form: { gap: 10 },
   header: { gap: 6 },
   hint: { color: "#64748b", fontSize: 13, lineHeight: 18 },
@@ -552,8 +910,12 @@ const styles = StyleSheet.create({
     gap: 6,
     padding: 14,
   },
+  messageAssistant: { borderLeftColor: "#2563eb", borderLeftWidth: 4 },
   messageContent: { color: "#0f172a", fontSize: 15, lineHeight: 21 },
+  messageHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
   messageRole: { color: "#64748b", fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
+  messageTime: { color: "#94a3b8", fontSize: 11 },
+  messageUser: { backgroundColor: "#f8fafc", borderLeftColor: "#16a34a", borderLeftWidth: 4 },
   messages: { gap: 10 },
   panel: {
     backgroundColor: "#ffffff",
@@ -564,7 +926,23 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   promptInput: { minHeight: 96, paddingTop: 12, textAlignVertical: "top" },
+  sessionItem: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+    padding: 14,
+  },
+  sessionItemId: { color: "#94a3b8", fontSize: 11 },
+  sessionItemMeta: { color: "#64748b", fontSize: 12 },
+  sessionItemPressed: { backgroundColor: "#eff6ff" },
+  sessionItemSelected: { borderColor: "#2563eb" },
+  sessionItemSummary: { color: "#334155", fontSize: 13, lineHeight: 18 },
+  sessionItemTitle: { color: "#0f172a", fontSize: 15, fontWeight: "700" },
+  sessionList: { gap: 10 },
   screen: { backgroundColor: "#f8fafc", flex: 1 },
+  sectionHeading: { color: "#0f172a", fontSize: 20, fontWeight: "700", marginTop: 4 },
   segmentButton: {
     alignItems: "center",
     borderRadius: 6,
