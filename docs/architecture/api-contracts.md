@@ -39,7 +39,7 @@ Mac 側ブリッジの HTTP API は Hono で実装する。
 
 Mac 側ブリッジは、セッションとメッセージをプロセスメモリに保持する。iPhone アプリは `GET /sessions` で同じ bridge プロセス内の既存セッションを選び直せる。ブリッジを再起動すると、この PoC のセッション情報は失われる。
 
-`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した場合は、prompt 送信時に tmux 上の `cat` セッションへ入力し、`capture-pane` の結果を assistant message にする。
+`EXPO_SANPO_PROMPT_DRIVER=tmux` を指定した場合は、prompt 送信時に tmux 上の `cat` セッションへ入力し、`capture-pane` の結果を assistant message にする。`EXPO_SANPO_PROMPT_DRIVER=codex-app-server` を指定した場合は、bridge が `codex app-server --listen stdio://` を子プロセスとして起動し、`turn/start` の completed item から `agentMessage.phase = final_answer` だけを assistant message にする。
 
 ## 未解決事項
 
