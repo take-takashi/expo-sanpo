@@ -14,6 +14,7 @@
 | 言語 | TypeScript | 5.9.3 | iPhone アプリと Mac 側ブリッジの実装 | ルートで共通設定を持つ |
 | サーバーフレームワーク | Hono | 4.10.7 | Mac 側ブリッジサーバー | Node.js Adapter を使う |
 | パッケージマネージャー | pnpm | 11.9.0 | Node.js 依存関係の管理 | git worktree 運用との相性を重視する |
+| Python パッケージ管理 | uv | 0.11.26 | Irodori-TTS の依存関係管理と実行 | `mise.toml` で指定し、Irodori-TTS 側の `uv.lock` を使う |
 | ツール管理 | mise | 2026.6.14 で検証 | Node.js、pnpm、Biome などのツール管理 | `mise.toml` で管理する |
 | タスクランナー | mise tasks | 2026.6.14 で検証 | 開発コマンドの単一入口 | 可能な限り mise tasks 以外の直接実行を避ける |
 | Lint | Biome | 2.5.2 | 静的解析 | mise 管理対象にする |
@@ -28,6 +29,7 @@
 | CLI | Codex CLI | TBD | 母艦の Mac 上で作業を実行する | tmux 上で起動する |
 | VPN | Tailscale | TBD | iPhone と Mac の到達性を確保する | プロジェクトの実装対象外 |
 | TTS | expo-speech | 14.0.x | iPhone 側で Codex CLI の結果を読み上げる | 初期 PoC の device モードで利用する |
+| Remote TTS | Irodori-TTS | v3 checkpoint | Mac 側で自然な音声を生成する | `~/fork/Irodori-TTS` をローカル HTTP サーバーとして起動する |
 | CI | TBD | TBD | TBD | TBD |
 | デプロイ | TBD | TBD | TBD | TBD |
 
@@ -41,6 +43,7 @@
 - TypeScript は iPhone アプリと Mac 側ブリッジの両方で型を共有しやすくするために使う。
 - Hono は Mac 側ブリッジサーバーを軽量に実装するために使う。
 - pnpm は git worktree 運用との相性を重視して使う。
+- uv は Irodori-TTS の Python 依存関係を、Irodori-TTS 側の `uv.lock` に従って再現するために使う。
 - mise はツール管理とタスクランナーの単一入口として使う。
 - Biome は Lint と Format をまとめて扱うために使う。
 - Jest は React Native と Expo のテスト導線に合わせるために使う。
@@ -48,7 +51,8 @@
 - Zod は iPhone アプリと Mac 側ブリッジの API 契約を共有し、実行時検証を行うために使う。
 - tmux は SSH 接続先で Codex CLI のセッションを維持するために使う。
 - Tailscale は VPN として利用するが、このプロジェクトでは構築や管理を対象外にする。
-- expo-speech は Expo Go で読み上げ体験を先に検証するために使う。将来的な Mac 側音声生成は remote TTS モードとして再検討する。
+- expo-speech は Expo Go で読み上げ体験を先に検証するために使う。
+- Irodori-TTS は remote TTS モードの候補として、Mac 側で常駐 HTTP サーバー化して利用する。
 - その他の技術は、実装方針が決まり次第、この文書に記録する。
 
 ## バージョン管理方針
@@ -61,7 +65,7 @@
 
 方針:
 
-- Node.js、pnpm、Biome などの開発ツールは `mise.toml` に固定する。
+- Node.js、pnpm、Biome、uv などの開発ツールは `mise.toml` に固定する。
 - 依存関係は pnpm と `pnpm-lock.yaml` で固定する。
 - 開発コマンドは `mise tasks` に集約する。
 - `package.json` の scripts は、必要な場合でも mise task から呼ばれる内部実装として扱う。

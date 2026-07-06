@@ -2,6 +2,7 @@
 node = "24"
 pnpm = "11.9.0"
 biome = "2.5.2"
+uv = "0.11.26"
 
 [tasks.install]
 description = "Install workspace dependencies"
@@ -14,6 +15,23 @@ run = "pnpm --filter @expo-sanpo/mobile run dev"
 [tasks."dev:bridge"]
 description = "Start the bridge server in development mode"
 run = "pnpm --filter @expo-sanpo/bridge run dev"
+
+[tasks."tts:irodori:install"]
+description = "Install Irodori-TTS dependencies with uv"
+run = '''
+IRODORI_TTS_DIR="${EXPO_SANPO_IRODORI_TTS_DIR:-${IRODORI_TTS_DIR:-$HOME/fork/Irodori-TTS}}"
+cd "$IRODORI_TTS_DIR"
+uv sync --extra cpu
+'''
+
+[tasks."dev:tts:irodori"]
+description = "Start the local Irodori-TTS HTTP server"
+run = '''
+EXPO_SANPO_ROOT="$(pwd)"
+export IRODORI_TTS_DIR="${EXPO_SANPO_IRODORI_TTS_DIR:-${IRODORI_TTS_DIR:-$HOME/fork/Irodori-TTS}}"
+cd "$IRODORI_TTS_DIR"
+uv run --no-sync uvicorn --app-dir "$EXPO_SANPO_ROOT/tools" irodori_tts_server:app --host "${EXPO_SANPO_IRODORI_TTS_HOST:-${IRODORI_TTS_HOST:-127.0.0.1}}" --port "${EXPO_SANPO_IRODORI_TTS_PORT:-${IRODORI_TTS_PORT:-8788}}"
+'''
 
 [tasks.lint]
 description = "Run Biome lint"
