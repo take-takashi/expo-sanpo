@@ -11,3 +11,5 @@
 モノレポ構成とパッケージ責務は `repository-structure.md` に記載する。
 
 iPhone アプリと Mac 側ブリッジの API 契約は `api-contracts.md` に記載する。
+
+Codex CLI の app-server を使った構造化イベント取得の検証結果は `codex-app-server-validation.md` に記載する。
