@@ -12,6 +12,8 @@
     "@expo-sanpo/contracts": "workspace:*",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "expo": "~54.0.35",
+    "expo-audio": "~1.1.1",
+    "expo-file-system": "~19.0.23",
     "expo-router": "~6.0.24",
     "expo-speech": "~14.0.8",
     "react": "19.1.0",

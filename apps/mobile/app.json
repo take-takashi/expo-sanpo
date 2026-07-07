@@ -8,6 +8,7 @@
     "platforms": ["ios"],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "plugins": ["expo-audio"]
   }
 }

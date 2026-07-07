@@ -28,7 +28,9 @@
 | セッション管理 | tmux | TBD | Codex CLI の実行セッションを維持する | Mac 側の前提ツール |
 | CLI | Codex CLI | TBD | 母艦の Mac 上で作業を実行する | tmux 上で起動する |
 | VPN | Tailscale | TBD | iPhone と Mac の到達性を確保する | プロジェクトの実装対象外 |
-| TTS | expo-speech | 14.0.x | iPhone 側で Codex CLI の結果を読み上げる | 初期 PoC の device モードで利用する |
+| TTS | expo-speech | 14.0.x | iPhone 側で Codex CLI の結果を読み上げる | device モードで利用する |
+| 音声再生 | expo-audio | 1.1.x | remote TTS が返した WAV を iPhone 側で再生する | Expo SDK 54 の現行 Audio API として利用する |
+| ファイル保存 | expo-file-system | 19.0.x | remote TTS の WAV を一時キャッシュに保存する | `Paths.cache` に保存し、再生 URI として使う |
 | Remote TTS | Irodori-TTS | v3 checkpoint | Mac 側で自然な音声を生成する | `~/fork/Irodori-TTS` をローカル HTTP サーバーとして起動する |
 | CI | TBD | TBD | TBD | TBD |
 | デプロイ | TBD | TBD | TBD | TBD |
@@ -51,8 +53,10 @@
 - Zod は iPhone アプリと Mac 側ブリッジの API 契約を共有し、実行時検証を行うために使う。
 - tmux は SSH 接続先で Codex CLI のセッションを維持するために使う。
 - Tailscale は VPN として利用するが、このプロジェクトでは構築や管理を対象外にする。
-- expo-speech は Expo Go で読み上げ体験を先に検証するために使う。
-- Irodori-TTS は remote TTS モードの候補として、Mac 側で常駐 HTTP サーバー化して利用する。
+- expo-speech は Expo Go で iPhone 側の標準読み上げを検証するために使う。
+- expo-audio は Irodori-TTS が返した WAV を iPhone 側で再生するために使う。
+- expo-file-system は remote TTS の生成音声を一時ファイルとして保存し、再生 URI を作るために使う。
+- Irodori-TTS は remote TTS モードとして、Mac 側で常駐 HTTP サーバー化して利用する。
 - その他の技術は、実装方針が決まり次第、この文書に記録する。
 
 ## バージョン管理方針

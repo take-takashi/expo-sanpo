@@ -9,8 +9,11 @@ import {
   type Session,
 } from "@expo-sanpo/contracts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
+import { fetch as expoFetch } from "expo/fetch";
+import { File, Paths } from "expo-file-system";
 import * as Speech from "expo-speech";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -25,15 +28,26 @@ import {
 const defaultBridgeUrl = "http://localhost:8787";
 const bridgeUrlStorageKey = "expo-sanpo.bridgeUrl";
 const ttsModeStorageKey = "expo-sanpo.ttsMode";
+const remoteTtsUrlStorageKey = "expo-sanpo.remoteTtsUrl";
 const sessionIdStorageKey = "expo-sanpo.sessionId";
 
 type TtsMode = "off" | "device" | "remote";
 
 const defaultTtsMode: TtsMode = "off";
-const selectableTtsModes: TtsMode[] = ["off", "device"];
+const selectableTtsModes: TtsMode[] = ["off", "device", "remote"];
 
 function normalizeBridgeUrl(bridgeUrl: string) {
   return bridgeUrl.trim().replace(/\/$/, "");
+}
+
+function getDefaultRemoteTtsUrl(bridgeUrl: string) {
+  const normalizedBridgeUrl = normalizeBridgeUrl(bridgeUrl);
+
+  if (normalizedBridgeUrl.length === 0) {
+    return "http://localhost:8788";
+  }
+
+  return normalizedBridgeUrl.replace(/:\d+$/u, ":8788");
 }
 
 function parseTtsMode(value: string | null): TtsMode {
@@ -86,13 +100,18 @@ export default function HomeScreen() {
   const [isSendingPrompt, setIsSendingPrompt] = useState(false);
   const [ttsMode, setTtsMode] = useState<TtsMode>(defaultTtsMode);
   const [ttsStatusText, setTtsStatusText] = useState("TTS off");
+  const [remoteTtsUrl, setRemoteTtsUrl] = useState(getDefaultRemoteTtsUrl(defaultBridgeUrl));
+  const remoteAudioPlayerRef = useRef<AudioPlayer | null>(null);
+  const remoteAudioFileRef = useRef<File | null>(null);
 
   const selectedSession = sessions.find((session) => session.id === sessionId) ?? null;
   const currentSessionLabel = selectedSession ? selectedSession.name : sessionStatusText;
   const ttsHintText =
-    Platform.OS === "ios"
-      ? "iPhone silent mode must be off for expo-speech in Expo Go."
-      : "Device TTS uses expo-speech on this device.";
+    ttsMode === "remote"
+      ? "Remote TTS uses the Mac Irodori-TTS server and plays generated WAV audio."
+      : Platform.OS === "ios"
+        ? "iPhone silent mode must be off for expo-speech in Expo Go."
+        : "Device TTS uses expo-speech on this device.";
 
   useEffect(() => {
     if (selectedSession) {
@@ -105,11 +124,14 @@ export default function HomeScreen() {
 
     async function loadSavedSettings() {
       try {
-        const [savedBridgeUrl, savedTtsMode, savedSessionId] = await Promise.all([
-          AsyncStorage.getItem(bridgeUrlStorageKey),
-          AsyncStorage.getItem(ttsModeStorageKey),
-          AsyncStorage.getItem(sessionIdStorageKey),
-        ]);
+        const [savedBridgeUrl, savedTtsMode, savedRemoteTtsUrl, savedSessionId] = await Promise.all(
+          [
+            AsyncStorage.getItem(bridgeUrlStorageKey),
+            AsyncStorage.getItem(ttsModeStorageKey),
+            AsyncStorage.getItem(remoteTtsUrlStorageKey),
+            AsyncStorage.getItem(sessionIdStorageKey),
+          ],
+        );
 
         if (!isMounted) {
           return;
@@ -121,9 +143,17 @@ export default function HomeScreen() {
           setBridgeUrl(savedBridgeUrl);
         }
 
+        setRemoteTtsUrl(savedRemoteTtsUrl || getDefaultRemoteTtsUrl(restoredBridgeUrl));
+
         const nextTtsMode = parseTtsMode(savedTtsMode);
         setTtsMode(nextTtsMode);
-        setTtsStatusText(nextTtsMode === "device" ? "TTS device" : "TTS off");
+        setTtsStatusText(
+          nextTtsMode === "device"
+            ? "TTS device"
+            : nextTtsMode === "remote"
+              ? "TTS remote"
+              : "TTS off",
+        );
 
         const baseUrl = normalizeBridgeUrl(restoredBridgeUrl);
 
@@ -203,14 +233,101 @@ export default function HomeScreen() {
 
   async function updateTtsMode(nextTtsMode: TtsMode) {
     setTtsMode(nextTtsMode);
-    Speech.stop();
+    stopAudioPlayback();
 
     try {
       await AsyncStorage.setItem(ttsModeStorageKey, nextTtsMode);
-      setTtsStatusText(nextTtsMode === "device" ? "TTS device" : "TTS off");
+      setTtsStatusText(
+        nextTtsMode === "device"
+          ? "TTS device"
+          : nextTtsMode === "remote"
+            ? "TTS remote"
+            : "TTS off",
+      );
     } catch (error) {
       setTtsStatusText(error instanceof Error ? error.message : "Failed to save TTS mode");
     }
+  }
+
+  async function updateRemoteTtsUrl(nextRemoteTtsUrl: string) {
+    setRemoteTtsUrl(nextRemoteTtsUrl);
+
+    const normalizedRemoteTtsUrl = normalizeBridgeUrl(nextRemoteTtsUrl);
+
+    try {
+      if (normalizedRemoteTtsUrl.length === 0) {
+        await AsyncStorage.removeItem(remoteTtsUrlStorageKey);
+        return;
+      }
+
+      await AsyncStorage.setItem(remoteTtsUrlStorageKey, normalizedRemoteTtsUrl);
+    } catch (error) {
+      setTtsStatusText(error instanceof Error ? error.message : "Failed to save remote TTS URL");
+    }
+  }
+
+  function getRemoteTtsBaseUrl() {
+    const baseUrl = normalizeBridgeUrl(remoteTtsUrl);
+
+    if (baseUrl.length === 0) {
+      throw new Error("Remote TTS URL is required");
+    }
+
+    return baseUrl;
+  }
+
+  function stopAudioPlayback() {
+    Speech.stop();
+
+    if (remoteAudioPlayerRef.current) {
+      remoteAudioPlayerRef.current.pause();
+      remoteAudioPlayerRef.current.remove();
+      remoteAudioPlayerRef.current = null;
+    }
+  }
+
+  async function playRemoteSpeech(text: string) {
+    const speakableText = text.trim();
+
+    if (speakableText.length === 0) {
+      setTtsStatusText("No text to speak");
+      return;
+    }
+
+    stopAudioPlayback();
+    setTtsStatusText("Generating remote voice");
+
+    const response = await expoFetch(`${getRemoteTtsBaseUrl()}/v1/audio/speech`, {
+      body: JSON.stringify({
+        input: speakableText,
+        model: "irodori-tts",
+        response_format: "wav",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      setTtsStatusText(`Remote TTS HTTP ${response.status}`);
+      return;
+    }
+
+    const audioBytes = await response.bytes();
+    const audioFile = new File(Paths.cache, `expo-sanpo-remote-tts-${Date.now()}.wav`);
+    audioFile.create({ overwrite: true });
+    audioFile.write(audioBytes);
+
+    if (remoteAudioFileRef.current?.exists) {
+      remoteAudioFileRef.current.delete();
+    }
+
+    remoteAudioFileRef.current = audioFile;
+    await setAudioModeAsync({ playsInSilentMode: true });
+
+    const player = createAudioPlayer({ uri: audioFile.uri });
+    remoteAudioPlayerRef.current = player;
+    player.play();
+    setTtsStatusText("Speaking remote");
   }
 
   function speakText(text: string) {
@@ -219,7 +336,9 @@ export default function HomeScreen() {
     }
 
     if (ttsMode === "remote") {
-      setTtsStatusText("Remote TTS is not implemented yet");
+      void playRemoteSpeech(text).catch((error) => {
+        setTtsStatusText(error instanceof Error ? error.message : "Remote TTS failed");
+      });
       return;
     }
 
@@ -230,7 +349,7 @@ export default function HomeScreen() {
       return;
     }
 
-    Speech.stop();
+    stopAudioPlayback();
     Speech.speak(speakableText, {
       language: "ja-JP",
       onDone: () => {
@@ -258,8 +377,10 @@ export default function HomeScreen() {
   }
 
   function stopSpeaking() {
-    Speech.stop();
-    setTtsStatusText(ttsMode === "device" ? "TTS device" : "TTS off");
+    stopAudioPlayback();
+    setTtsStatusText(
+      ttsMode === "device" ? "TTS device" : ttsMode === "remote" ? "TTS remote" : "TTS off",
+    );
   }
 
   async function updateBridgeUrl(nextBridgeUrl: string) {
@@ -274,6 +395,12 @@ export default function HomeScreen() {
       }
 
       await AsyncStorage.setItem(bridgeUrlStorageKey, normalizedBridgeUrl);
+
+      if (remoteTtsUrl === getDefaultRemoteTtsUrl(bridgeUrl)) {
+        const nextRemoteTtsUrl = getDefaultRemoteTtsUrl(normalizedBridgeUrl);
+        setRemoteTtsUrl(nextRemoteTtsUrl);
+        await AsyncStorage.setItem(remoteTtsUrlStorageKey, nextRemoteTtsUrl);
+      }
     } catch (error) {
       setHealthStatusText(error instanceof Error ? error.message : "Failed to save Bridge URL");
     }
@@ -459,7 +586,7 @@ export default function HomeScreen() {
     }
 
     setIsSendingPrompt(true);
-    Speech.stop();
+    stopAudioPlayback();
 
     try {
       const baseUrl = getBaseUrl();
@@ -738,30 +865,46 @@ export default function HomeScreen() {
                       isSelected ? styles.segmentButtonTextSelected : null,
                     ]}
                   >
-                    {mode === "device" ? "Device" : "Off"}
+                    {mode === "device" ? "Device" : mode === "remote" ? "Remote" : "Off"}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
+          {ttsMode === "remote" ? (
+            <View style={styles.form}>
+              <Text style={styles.label}>Remote TTS URL</Text>
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                inputMode="url"
+                onChangeText={(nextRemoteTtsUrl) => {
+                  void updateRemoteTtsUrl(nextRemoteTtsUrl);
+                }}
+                placeholder="http://192.168.1.10:8788"
+                style={styles.input}
+                value={remoteTtsUrl}
+              />
+            </View>
+          ) : null}
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
-              disabled={ttsMode !== "device"}
+              disabled={ttsMode === "off"}
               onPress={() => {
                 speakText("音声テストです。");
               }}
               style={({ pressed }) => [
                 styles.secondaryButton,
-                ttsMode !== "device" ? styles.secondaryButtonDisabled : null,
-                pressed && ttsMode === "device" ? styles.secondaryButtonPressed : null,
+                ttsMode === "off" ? styles.secondaryButtonDisabled : null,
+                pressed && ttsMode !== "off" ? styles.secondaryButtonPressed : null,
               ]}
             >
               <Text style={styles.secondaryButtonText}>Test Voice</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              disabled={ttsMode !== "device"}
+              disabled={ttsMode === "off"}
               onPress={() => {
                 const latestAssistantMessage = getLatestAssistantMessage(messages);
 
@@ -771,8 +914,8 @@ export default function HomeScreen() {
               }}
               style={({ pressed }) => [
                 styles.secondaryButton,
-                ttsMode !== "device" ? styles.secondaryButtonDisabled : null,
-                pressed && ttsMode === "device" ? styles.secondaryButtonPressed : null,
+                ttsMode === "off" ? styles.secondaryButtonDisabled : null,
+                pressed && ttsMode !== "off" ? styles.secondaryButtonPressed : null,
               ]}
             >
               <Text style={styles.secondaryButtonText}>Read Latest</Text>

@@ -32,6 +32,11 @@ export IRODORI_TTS_DIR="${EXPO_SANPO_IRODORI_TTS_DIR:-${IRODORI_TTS_DIR:-$HOME/f
 cd "$IRODORI_TTS_DIR"
 uv run --no-sync uvicorn --app-dir "$EXPO_SANPO_ROOT/tools" irodori_tts_server:app --host "${EXPO_SANPO_IRODORI_TTS_HOST:-${IRODORI_TTS_HOST:-127.0.0.1}}" --port "${EXPO_SANPO_IRODORI_TTS_PORT:-${IRODORI_TTS_PORT:-8788}}"
 '''
+[tasks."dev:tts:irodori:lan"]
+description = "Start the Irodori-TTS HTTP server for LAN or Tailscale clients"
+run = '''
+EXPO_SANPO_IRODORI_TTS_HOST="${EXPO_SANPO_IRODORI_TTS_HOST:-0.0.0.0}" mise run dev:tts:irodori
+'''
 
 [tasks.lint]
 description = "Run Biome lint"

@@ -305,6 +305,7 @@ class AppServerTurnCollector {
     }
 
     if (notification.method === "turn/completed") {
+      this.#handleTurnCompleted(notification.params);
       this.#isCompleted = true;
       this.#completeIfReady();
     }
@@ -330,13 +331,27 @@ class AppServerTurnCollector {
   }
 
   #handleCompletedItem(params: JsonObject) {
-    const item = params.item;
+    this.#collectAgentMessage(params.item);
+  }
 
+  #handleTurnCompleted(params: JsonObject) {
+    const turn = params.turn;
+
+    if (!isObject(turn) || !Array.isArray(turn.items)) {
+      return;
+    }
+
+    for (const item of turn.items) {
+      this.#collectAgentMessage(item);
+    }
+  }
+
+  #collectAgentMessage(item: unknown) {
     if (!isObject(item) || item.type !== "agentMessage") {
       return;
     }
 
-    const text = getString(item, "text")?.trim();
+    const text = getAgentMessageText(item)?.trim();
 
     if (!text) {
       return;
@@ -376,6 +391,48 @@ function getString(object: JsonObject, key: string) {
   const value = object[key];
 
   return typeof value === "string" ? value : undefined;
+}
+
+function getAgentMessageText(item: JsonObject) {
+  const text = getString(item, "text");
+
+  if (text) {
+    return text;
+  }
+
+  const contentText = getTextFromContent(item.content);
+
+  if (contentText) {
+    return contentText;
+  }
+
+  return getTextFromContent(item.text_elements);
+}
+
+function getTextFromContent(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const textParts = value.flatMap((contentItem) => {
+    if (typeof contentItem === "string") {
+      return [contentItem];
+    }
+
+    if (!isObject(contentItem)) {
+      return [];
+    }
+
+    const text = getString(contentItem, "text") ?? getString(contentItem, "content");
+
+    return text ? [text] : [];
+  });
+
+  return textParts.length > 0 ? textParts.join("") : undefined;
 }
 
 function getNestedString(value: unknown, keys: string[]) {

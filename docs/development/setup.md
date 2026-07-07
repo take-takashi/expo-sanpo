@@ -94,13 +94,21 @@ mise run tts:irodori:install
 
 このコマンドは、既定では `~/fork/Irodori-TTS` で `uv sync --extra cpu` を実行する。repo の場所が異なる場合は、`EXPO_SANPO_IRODORI_TTS_DIR` を指定する。macOS では `cpu` extra が PyPI の PyTorch wheel を使うため、MPS もこの環境で利用する。
 
-ローカル HTTP サーバーを起動する場合は、次のコマンドを使う。
+Mac 内だけでローカル HTTP サーバーを起動する場合は、次のコマンドを使う。
 
 ```sh
 mise run dev:tts:irodori
 ```
 
-既定では `http://127.0.0.1:8788` に `/health` と `/v1/audio/speech` を提供する。`/v1/audio/speech` は OpenAI TTS API に近い request body を受け取るが、現時点では `response_format = wav` のみを返す。推論は Irodori-TTS の MPS 並列実行を避けるため、サーバープロセス内で直列化する。
+このコマンドは既定で `http://127.0.0.1:8788` に `/health` と `/v1/audio/speech` を提供する。`127.0.0.1` は Mac 内部専用であり、iPhone など別端末からは接続できない。
+
+iPhone 実機から使う場合は、次のコマンドで LAN または Tailscale 向けに起動する。
+
+```sh
+mise run dev:tts:irodori:lan
+```
+
+このコマンドは `0.0.0.0:8788` で待ち受ける。アプリの TTS で `Remote` を選び、Remote TTS URL に Mac の到達可能な IP または Tailscale hostname と `:8788` を指定する。`/v1/audio/speech` は OpenAI TTS API に近い request body を受け取るが、現時点では `response_format = wav` のみを返す。推論は Irodori-TTS の MPS 並列実行を避けるため、サーバープロセス内で直列化する。
 
 高速化の初期値として、`IRODORI_TTS_NUM_STEPS=6`、`IRODORI_TTS_T_SCHEDULE_MODE=sway`、`IRODORI_TTS_SWAY_COEFF=-1.0` を使う。初回合成の待ち時間を先に吸収したい場合は、`IRODORI_TTS_PREWARM_TEXT` に短い文を指定して起動する。
 

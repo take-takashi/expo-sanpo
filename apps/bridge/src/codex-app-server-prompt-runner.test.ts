@@ -7,6 +7,13 @@ type JsonObject = Record<string, unknown>;
 
 class FakeAppServerProcess extends EventEmitter {
   completeTurns = true;
+  emitItemCompleted = true;
+  completedAgentItem: JsonObject = {
+    id: "agent-1",
+    phase: "final_answer",
+    text: "最終回答です。",
+    type: "agentMessage",
+  };
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
@@ -71,22 +78,22 @@ class FakeAppServerProcess extends EventEmitter {
             turnId: "turn-1",
           },
         });
-        this.#write({
-          method: "item/completed",
-          params: {
-            item: {
-              id: "agent-1",
-              phase: "final_answer",
-              text: "最終回答です。",
-              type: "agentMessage",
+        if (this.emitItemCompleted) {
+          this.#write({
+            method: "item/completed",
+            params: {
+              item: this.completedAgentItem,
+              threadId: this.#threadId,
+              turnId: "turn-1",
             },
-            threadId: this.#threadId,
-            turnId: "turn-1",
-          },
-        });
+          });
+        }
         this.#write({
           method: "turn/completed",
-          params: { threadId: this.#threadId, turn: { id: "turn-1", status: "completed" } },
+          params: {
+            threadId: this.#threadId,
+            turn: { id: "turn-1", items: [this.completedAgentItem], status: "completed" },
+          },
         });
       });
     }
@@ -127,6 +134,62 @@ describe("CodexAppServerPromptRunner", () => {
       input: [{ text: "こんにちは", text_elements: [], type: "text" }],
       threadId: "thread-1",
     });
+  });
+
+  it("returns the final answer from turn completed items", async () => {
+    const fakeProcess = new FakeAppServerProcess();
+    fakeProcess.emitItemCompleted = false;
+    fakeProcess.completedAgentItem = {
+      id: "agent-1",
+      phase: "final_answer",
+      text: "turn payloadの最終回答です。",
+      type: "agentMessage",
+    };
+    const runner = new CodexAppServerPromptRunner({
+      spawnAppServer: () => fakeProcess as never,
+      workingDirectory: "/repo",
+    });
+
+    await expect(runner.runPrompt("session-1", "こんにちは")).resolves.toBe(
+      "turn payloadの最終回答です。",
+    );
+  });
+
+  it("falls back to an unknown phase agent message after turn completion", async () => {
+    const fakeProcess = new FakeAppServerProcess();
+    fakeProcess.emitItemCompleted = false;
+    fakeProcess.completedAgentItem = {
+      id: "agent-1",
+      text: "phaseなしの回答です。",
+      type: "agentMessage",
+    };
+    const runner = new CodexAppServerPromptRunner({
+      spawnAppServer: () => fakeProcess as never,
+      workingDirectory: "/repo",
+    });
+
+    await expect(runner.runPrompt("session-1", "こんにちは")).resolves.toBe(
+      "phaseなしの回答です。",
+    );
+  });
+
+  it("extracts agent message text from content items", async () => {
+    const fakeProcess = new FakeAppServerProcess();
+    fakeProcess.emitItemCompleted = false;
+    fakeProcess.completedAgentItem = {
+      content: [{ text: "content由来の" }, { text: "回答です。" }],
+      id: "agent-1",
+      phase: "final_answer",
+      type: "agentMessage",
+    };
+    const runner = new CodexAppServerPromptRunner({
+      spawnAppServer: () => fakeProcess as never,
+      workingDirectory: "/repo",
+    });
+
+    await expect(runner.runPrompt("session-1", "こんにちは")).resolves.toBe(
+      "content由来の回答です。",
+    );
   });
 
   it("reuses the same app-server thread for the same bridge session", async () => {
