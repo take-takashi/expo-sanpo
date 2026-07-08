@@ -10,33 +10,126 @@ run = "pnpm install"
 
 [tasks.dev]
 description = "Start the Expo mobile development server"
-run = "pnpm --filter @expo-sanpo/mobile run dev"
+usage = '''
+flag "--host <host>" help="Expo Go に渡す URL の host。Tailscale hostname または IP を手動指定する"
+flag "--host-mode <mode>" help="Expo Go に渡す URL の host 選択。auto は Tailscale IP を優先し、lan は自動設定を使わない" default="auto" {
+  choices "auto" "tailscale" "lan"
+}
+'''
+run = '''
+HOST_MODE="${usage_host_mode:-auto}"
+if [ "$HOST_MODE" = "lan" ]; then
+  unset REACT_NATIVE_PACKAGER_HOSTNAME
+elif [ -n "${usage_host:-}" ]; then
+  export REACT_NATIVE_PACKAGER_HOSTNAME="$usage_host"
+  echo "Using configured host for Expo: $REACT_NATIVE_PACKAGER_HOSTNAME"
+elif command -v tailscale >/dev/null 2>&1; then
+  TAILSCALE_IP="$(tailscale ip -4 2>/dev/null | head -n 1 || true)"
+  if [ -n "$TAILSCALE_IP" ]; then
+    export REACT_NATIVE_PACKAGER_HOSTNAME="$TAILSCALE_IP"
+    echo "Using Tailscale host for Expo: $REACT_NATIVE_PACKAGER_HOSTNAME"
+  elif [ "$HOST_MODE" = "tailscale" ]; then
+    echo "Tailscale host was requested, but tailscale ip -4 did not return an IP."
+    exit 2
+  fi
+elif [ "$HOST_MODE" = "tailscale" ]; then
+  echo "Tailscale host was requested, but tailscale command was not found."
+  exit 2
+fi
+pnpm --filter @expo-sanpo/mobile run dev:lan
+'''
+[tasks."dev:tunnel"]
+description = "Start the Expo mobile development server through an Expo tunnel"
+run = "pnpm --filter @expo-sanpo/mobile run dev:tunnel"
 
 [tasks."dev:bridge"]
 description = "Start the bridge server in development mode"
-run = "pnpm --filter @expo-sanpo/bridge run dev"
+usage = '''
+flag "--driver <driver>" help="prompt 実行方式" {
+  choices "mock" "tmux" "codex" "codex-app-server"
+}
+flag "--codex-command <command>" help="Codex CLI の実行コマンド"
+flag "--codex-workdir <dir>" help="Codex CLI または app-server thread の作業ディレクトリ"
+flag "--turn-timeout-ms <ms>" help="codex-app-server driver の turn 完了待ち timeout"
+flag "--submit-keys <keys>" help="Codex CLI へ prompt を送信する tmux キー列"
+flag "--tmux-session-prefix <prefix>" help="tmux セッション名の prefix"
+'''
+run = '''
+if [ -n "${usage_driver:-}" ] && [ "$usage_driver" != "mock" ]; then
+  export EXPO_SANPO_PROMPT_DRIVER="$usage_driver"
+elif [ "${usage_driver:-}" = "mock" ]; then
+  unset EXPO_SANPO_PROMPT_DRIVER
+fi
+if [ -n "${usage_codex_command:-}" ]; then export EXPO_SANPO_CODEX_COMMAND="$usage_codex_command"; fi
+if [ -n "${usage_codex_workdir:-}" ]; then export EXPO_SANPO_CODEX_WORKDIR="$usage_codex_workdir"; fi
+if [ -n "${usage_turn_timeout_ms:-}" ]; then export EXPO_SANPO_CODEX_APP_SERVER_TURN_TIMEOUT_MS="$usage_turn_timeout_ms"; fi
+if [ -n "${usage_submit_keys:-}" ]; then export EXPO_SANPO_CODEX_SUBMIT_KEYS="$usage_submit_keys"; fi
+if [ -n "${usage_tmux_session_prefix:-}" ]; then export EXPO_SANPO_TMUX_SESSION_PREFIX="$usage_tmux_session_prefix"; fi
+pnpm --filter @expo-sanpo/bridge run dev
+'''
 
 [tasks."tts:irodori:install"]
 description = "Install Irodori-TTS dependencies with uv"
+usage = '''
+flag "--dir <dir>" help="Irodori-TTS 本体 repo のパス" default="~/fork/Irodori-TTS" env="EXPO_SANPO_IRODORI_TTS_DIR"
+'''
 run = '''
-IRODORI_TTS_DIR="${EXPO_SANPO_IRODORI_TTS_DIR:-${IRODORI_TTS_DIR:-$HOME/fork/Irodori-TTS}}"
+ORIGINAL_IRODORI_TTS_DIR="${IRODORI_TTS_DIR:-}"
+IRODORI_TTS_DIR="${usage_dir}"
+if [ "$IRODORI_TTS_DIR" = "~/fork/Irodori-TTS" ] && [ -n "$ORIGINAL_IRODORI_TTS_DIR" ]; then
+  IRODORI_TTS_DIR="$ORIGINAL_IRODORI_TTS_DIR"
+fi
+case "$IRODORI_TTS_DIR" in
+  ~/*) IRODORI_TTS_DIR="$HOME/${IRODORI_TTS_DIR#~/}" ;;
+esac
 cd "$IRODORI_TTS_DIR"
 uv sync --extra cpu
 '''
 
 [tasks."dev:tts:irodori"]
 description = "Start the local Irodori-TTS HTTP server"
+usage = '''
+flag "--dir <dir>" help="Irodori-TTS 本体 repo のパス" default="~/fork/Irodori-TTS" env="EXPO_SANPO_IRODORI_TTS_DIR"
+flag "--host <host>" help="Irodori-TTS HTTP サーバーの listen host" default="127.0.0.1" env="EXPO_SANPO_IRODORI_TTS_HOST"
+flag "--port <port>" help="Irodori-TTS HTTP サーバーの listen port" default="8788" env="EXPO_SANPO_IRODORI_TTS_PORT"
+flag "--checkpoint <path>" help="ローカル checkpoint file" env="IRODORI_TTS_CHECKPOINT"
+flag "--hf-checkpoint <repo>" help="Hugging Face checkpoint repo" env="IRODORI_TTS_HF_CHECKPOINT"
+flag "--num-steps <steps>" help="sampling step 数" env="IRODORI_TTS_NUM_STEPS"
+flag "--t-schedule-mode <mode>" help="timestep schedule" env="IRODORI_TTS_T_SCHEDULE_MODE"
+flag "--sway-coeff <coeff>" help="Sway Sampling 係数" env="IRODORI_TTS_SWAY_COEFF"
+flag "--prewarm-text <text>" help="起動時に事前合成する短文" env="IRODORI_TTS_PREWARM_TEXT"
+'''
 run = '''
 EXPO_SANPO_ROOT="$(pwd)"
-export IRODORI_TTS_DIR="${EXPO_SANPO_IRODORI_TTS_DIR:-${IRODORI_TTS_DIR:-$HOME/fork/Irodori-TTS}}"
+ORIGINAL_IRODORI_TTS_DIR="${IRODORI_TTS_DIR:-}"
+export IRODORI_TTS_DIR="${usage_dir}"
+if [ "$IRODORI_TTS_DIR" = "~/fork/Irodori-TTS" ] && [ -n "$ORIGINAL_IRODORI_TTS_DIR" ]; then
+  export IRODORI_TTS_DIR="$ORIGINAL_IRODORI_TTS_DIR"
+fi
+IRODORI_TTS_HOST_VALUE="$usage_host"
+if [ "$IRODORI_TTS_HOST_VALUE" = "127.0.0.1" ] && [ -n "${IRODORI_TTS_HOST:-}" ]; then
+  IRODORI_TTS_HOST_VALUE="$IRODORI_TTS_HOST"
+fi
+IRODORI_TTS_PORT_VALUE="$usage_port"
+if [ "$IRODORI_TTS_PORT_VALUE" = "8788" ] && [ -n "${IRODORI_TTS_PORT:-}" ]; then
+  IRODORI_TTS_PORT_VALUE="$IRODORI_TTS_PORT"
+fi
+case "$IRODORI_TTS_DIR" in
+  ~/*) export IRODORI_TTS_DIR="$HOME/${IRODORI_TTS_DIR#~/}" ;;
+esac
+if [ -n "${usage_checkpoint:-}" ]; then export IRODORI_TTS_CHECKPOINT="$usage_checkpoint"; fi
+if [ -n "${usage_hf_checkpoint:-}" ]; then export IRODORI_TTS_HF_CHECKPOINT="$usage_hf_checkpoint"; fi
+if [ -n "${usage_num_steps:-}" ]; then export IRODORI_TTS_NUM_STEPS="$usage_num_steps"; fi
+if [ -n "${usage_t_schedule_mode:-}" ]; then export IRODORI_TTS_T_SCHEDULE_MODE="$usage_t_schedule_mode"; fi
+if [ -n "${usage_sway_coeff:-}" ]; then export IRODORI_TTS_SWAY_COEFF="$usage_sway_coeff"; fi
+if [ -n "${usage_prewarm_text:-}" ]; then export IRODORI_TTS_PREWARM_TEXT="$usage_prewarm_text"; fi
 cd "$IRODORI_TTS_DIR"
-uv run --no-sync uvicorn --app-dir "$EXPO_SANPO_ROOT/tools" irodori_tts_server:app --host "${EXPO_SANPO_IRODORI_TTS_HOST:-${IRODORI_TTS_HOST:-127.0.0.1}}" --port "${EXPO_SANPO_IRODORI_TTS_PORT:-${IRODORI_TTS_PORT:-8788}}"
+uv run --no-sync uvicorn --app-dir "$EXPO_SANPO_ROOT/tools" irodori_tts_server:app --host "$IRODORI_TTS_HOST_VALUE" --port "$IRODORI_TTS_PORT_VALUE"
 '''
+
 [tasks."dev:tts:irodori:lan"]
 description = "Start the Irodori-TTS HTTP server for LAN or Tailscale clients"
-run = '''
-EXPO_SANPO_IRODORI_TTS_HOST="${EXPO_SANPO_IRODORI_TTS_HOST:-0.0.0.0}" mise run dev:tts:irodori
-'''
+run = "mise run dev:tts:irodori --host 0.0.0.0"
 
 [tasks.lint]
 description = "Run Biome lint"

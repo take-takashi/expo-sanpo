@@ -13,4 +13,5 @@
 - 未確定の技術、コマンド、運用は推測で確定扱いにせず、`TBD` または判断が必要な点として残す。
 - ドキュメント構成を変更する場合は、分類の意図と参照先を合わせて更新する。
 - 仕様、設計、実装が矛盾している場合は、勝手に片方へ合わせず、差分と判断が必要な点を明示する。
+- Expo Go を iPhone から Tailscale 経由で使う場合は、Metro が表示する URL の host が iPhone から到達できる Mac の Tailscale hostname または IP である必要がある。`mise run dev` は Tailscale IP を自動検出して使い、手動固定には `mise run dev --host <host>` を使う。
 
