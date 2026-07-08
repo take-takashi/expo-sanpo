@@ -108,7 +108,7 @@ iPhone 実機から使う場合は、次のコマンドで LAN または Tailsca
 mise run dev:tts:irodori:lan
 ```
 
-このコマンドは `0.0.0.0:8788` で待ち受ける。アプリの TTS で `Remote` を選び、Remote TTS URL に Mac の到達可能な IP または Tailscale hostname と `:8788` を指定する。`/v1/audio/speech` は OpenAI TTS API に近い request body を受け取るが、現時点では `response_format = wav` のみを返す。推論は Irodori-TTS の MPS 並列実行を避けるため、サーバープロセス内で直列化する。
+このコマンドは `0.0.0.0:8788` で待ち受ける。アプリの TTS で `Remote` を選び、Remote TTS URL に Mac の到達可能な IP または Tailscale hostname と `:8788` を指定する。`/v1/audio/speech` は OpenAI TTS API に近い request body を受け取るが、現時点では `response_format = wav` のみを返す。長文の remote TTS では、アプリが `/v1/audio/speech/jobs` で job を作り、`GET /v1/audio/speech/jobs/:jobId` で ready になった chunk を確認し、`GET /v1/audio/speech/jobs/:jobId/chunks/:index.wav` を順番に再生する。サーバーは改行、句点、長さをもとに chunk を分割する。推論は Irodori-TTS の MPS 並列実行を避けるため、サーバープロセス内で直列化する。
 
 高速化の初期値として、`IRODORI_TTS_NUM_STEPS=6`、`IRODORI_TTS_T_SCHEDULE_MODE=sway`、`IRODORI_TTS_SWAY_COEFF=-1.0` を使う。初回合成の待ち時間を先に吸収したい場合は、`IRODORI_TTS_PREWARM_TEXT` に短い文を指定して起動する。
 

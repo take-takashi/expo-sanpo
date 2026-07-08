@@ -9,7 +9,12 @@ import {
   type Session,
 } from "@expo-sanpo/contracts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  type AudioPlayer,
+  type AudioStatus,
+} from "expo-audio";
 import { fetch as expoFetch } from "expo/fetch";
 import { File, Paths } from "expo-file-system";
 import * as Speech from "expo-speech";
@@ -32,6 +37,25 @@ const remoteTtsUrlStorageKey = "expo-sanpo.remoteTtsUrl";
 const sessionIdStorageKey = "expo-sanpo.sessionId";
 
 type TtsMode = "off" | "device" | "remote";
+
+type RemoteSpeechJob = {
+  jobId: string;
+  chunkCount: number;
+};
+
+type RemoteSpeechChunk = {
+  index: number;
+  status: "pending" | "running" | "ready" | "failed";
+  text: string;
+  audioUrl?: string | null;
+  error?: string | null;
+};
+
+type RemoteSpeechJobStatus = {
+  jobId: string;
+  status: "pending" | "running" | "ready" | "failed";
+  chunks: RemoteSpeechChunk[];
+};
 
 const defaultTtsMode: TtsMode = "off";
 const selectableTtsModes: TtsMode[] = ["off", "device", "remote"];
@@ -103,6 +127,7 @@ export default function HomeScreen() {
   const [remoteTtsUrl, setRemoteTtsUrl] = useState(getDefaultRemoteTtsUrl(defaultBridgeUrl));
   const remoteAudioPlayerRef = useRef<AudioPlayer | null>(null);
   const remoteAudioFileRef = useRef<File | null>(null);
+  const remoteSpeechRunIdRef = useRef(0);
 
   const selectedSession = sessions.find((session) => session.id === sessionId) ?? null;
   const currentSessionLabel = selectedSession ? selectedSession.name : sessionStatusText;
@@ -277,6 +302,7 @@ export default function HomeScreen() {
   }
 
   function stopAudioPlayback() {
+    remoteSpeechRunIdRef.current += 1;
     Speech.stop();
 
     if (remoteAudioPlayerRef.current) {
@@ -295,11 +321,37 @@ export default function HomeScreen() {
     }
 
     stopAudioPlayback();
-    setTtsStatusText("Generating remote voice");
+    const runId = remoteSpeechRunIdRef.current;
+    const baseUrl = getRemoteTtsBaseUrl();
+    setTtsStatusText("Creating remote voice job");
 
-    const response = await expoFetch(`${getRemoteTtsBaseUrl()}/v1/audio/speech`, {
+    const job = await createRemoteSpeechJob(baseUrl, speakableText);
+    setTtsStatusText(`Generating chunk 1/${job.chunkCount}`);
+
+    for (let chunkIndex = 0; chunkIndex < job.chunkCount; chunkIndex += 1) {
+      if (runId !== remoteSpeechRunIdRef.current) {
+        return;
+      }
+
+      const chunk = await waitForRemoteSpeechChunk(baseUrl, job.jobId, chunkIndex, runId);
+
+      if (runId !== remoteSpeechRunIdRef.current) {
+        return;
+      }
+
+      setTtsStatusText(`Speaking chunk ${chunk.index + 1}/${job.chunkCount}`);
+      await playRemoteSpeechChunk(baseUrl, job.jobId, chunk, runId);
+    }
+
+    if (runId === remoteSpeechRunIdRef.current) {
+      setTtsStatusText("TTS remote");
+    }
+  }
+
+  async function createRemoteSpeechJob(baseUrl: string, text: string): Promise<RemoteSpeechJob> {
+    const response = await expoFetch(`${baseUrl}/v1/audio/speech/jobs`, {
       body: JSON.stringify({
-        input: speakableText,
+        input: text,
         model: "irodori-tts",
         response_format: "wav",
       }),
@@ -308,12 +360,62 @@ export default function HomeScreen() {
     });
 
     if (!response.ok) {
-      setTtsStatusText(`Remote TTS HTTP ${response.status}`);
-      return;
+      throw new Error(`Remote TTS job HTTP ${response.status}`);
+    }
+
+    return (await response.json()) as RemoteSpeechJob;
+  }
+
+  async function waitForRemoteSpeechChunk(
+    baseUrl: string,
+    jobId: string,
+    chunkIndex: number,
+    runId: number,
+  ): Promise<RemoteSpeechChunk> {
+    while (runId === remoteSpeechRunIdRef.current) {
+      const response = await expoFetch(`${baseUrl}/v1/audio/speech/jobs/${jobId}`);
+
+      if (!response.ok) {
+        throw new Error(`Remote TTS job status HTTP ${response.status}`);
+      }
+
+      const jobStatus = (await response.json()) as RemoteSpeechJobStatus;
+      const chunk = jobStatus.chunks.find((candidate) => candidate.index === chunkIndex);
+
+      if (!chunk) {
+        throw new Error(`Remote TTS chunk ${chunkIndex} was not found`);
+      }
+
+      if (chunk.status === "failed") {
+        throw new Error(chunk.error || `Remote TTS chunk ${chunkIndex + 1} failed`);
+      }
+
+      if (chunk.status === "ready") {
+        return chunk;
+      }
+
+      setTtsStatusText(`Generating chunk ${chunkIndex + 1}/${jobStatus.chunks.length}`);
+      await sleep(800);
+    }
+
+    throw new Error("Remote TTS stopped");
+  }
+
+  async function playRemoteSpeechChunk(
+    baseUrl: string,
+    jobId: string,
+    chunk: RemoteSpeechChunk,
+    runId: number,
+  ) {
+    const audioUrl = chunk.audioUrl ?? `/v1/audio/speech/jobs/${jobId}/chunks/${chunk.index}.wav`;
+    const response = await expoFetch(`${baseUrl}${audioUrl}`);
+
+    if (!response.ok) {
+      throw new Error(`Remote TTS chunk HTTP ${response.status}`);
     }
 
     const audioBytes = await response.bytes();
-    const audioFile = new File(Paths.cache, `expo-sanpo-remote-tts-${Date.now()}.wav`);
+    const audioFile = new File(Paths.cache, `expo-sanpo-remote-tts-${jobId}-${chunk.index}.wav`);
     audioFile.create({ overwrite: true });
     audioFile.write(audioBytes);
 
@@ -324,10 +426,38 @@ export default function HomeScreen() {
     remoteAudioFileRef.current = audioFile;
     await setAudioModeAsync({ playsInSilentMode: true });
 
-    const player = createAudioPlayer({ uri: audioFile.uri });
-    remoteAudioPlayerRef.current = player;
-    player.play();
-    setTtsStatusText("Speaking remote");
+    await new Promise<void>((resolve, reject) => {
+      if (runId !== remoteSpeechRunIdRef.current) {
+        resolve();
+        return;
+      }
+
+      const player = createAudioPlayer({ uri: audioFile.uri });
+      remoteAudioPlayerRef.current = player;
+      const subscription = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
+        if (status.didJustFinish) {
+          subscription.remove();
+          player.remove();
+          if (remoteAudioPlayerRef.current === player) {
+            remoteAudioPlayerRef.current = null;
+          }
+          resolve();
+        }
+      });
+
+      try {
+        player.play();
+      } catch (error) {
+        subscription.remove();
+        reject(error);
+      }
+    });
+  }
+
+  function sleep(ms: number) {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 
   function speakText(text: string) {

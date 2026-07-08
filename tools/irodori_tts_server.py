@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 import tempfile
+import time
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -79,6 +82,167 @@ class SpeechRequest(BaseModel):
     voice: str | None = Field(default=None)
     response_format: Literal["wav"] = "wav"
     speed: float | None = Field(default=None)
+
+
+class SpeechJobResponse(BaseModel):
+    job_id: str = Field(alias="jobId")
+    chunk_count: int = Field(alias="chunkCount")
+
+    model_config = {"populate_by_name": True}
+
+
+class SpeechJobChunk(BaseModel):
+    index: int
+    status: Literal["pending", "running", "ready", "failed"]
+    text: str
+    audio_url: str | None = Field(default=None, alias="audioUrl")
+    error: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class SpeechJobStatusResponse(BaseModel):
+    job_id: str = Field(alias="jobId")
+    status: Literal["pending", "running", "ready", "failed"]
+    chunks: list[SpeechJobChunk]
+
+    model_config = {"populate_by_name": True}
+
+
+class SpeechChunkState:
+    def __init__(self, index: int, text: str) -> None:
+        self.index = index
+        self.text = text
+        self.status: Literal["pending", "running", "ready", "failed"] = "pending"
+        self.audio: bytes | None = None
+        self.error: str | None = None
+
+
+class SpeechJobState:
+    def __init__(self, job_id: str, chunks: list[SpeechChunkState]) -> None:
+        self.job_id = job_id
+        self.chunks = chunks
+        self.created_at = time.monotonic()
+        self.status: Literal["pending", "running", "ready", "failed"] = "pending"
+
+
+class SpeechJobStore:
+    def __init__(self, ttl_seconds: float = 30 * 60) -> None:
+        self._jobs: dict[str, SpeechJobState] = {}
+        self._ttl_seconds = ttl_seconds
+
+    def create(self, chunks: list[str]) -> SpeechJobState:
+        self.prune()
+        job_id = uuid.uuid4().hex
+        job = SpeechJobState(
+            job_id=job_id,
+            chunks=[SpeechChunkState(index=index, text=chunk) for index, chunk in enumerate(chunks)],
+        )
+        self._jobs[job_id] = job
+        return job
+
+    def get(self, job_id: str) -> SpeechJobState | None:
+        self.prune()
+        return self._jobs.get(job_id)
+
+    def prune(self) -> None:
+        now = time.monotonic()
+        expired_job_ids = [
+            job_id
+            for job_id, job in self._jobs.items()
+            if now - job.created_at > self._ttl_seconds
+        ]
+        for job_id in expired_job_ids:
+            del self._jobs[job_id]
+
+
+def split_text_for_tts(text: str, max_chars: int = 120) -> list[str]:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return []
+
+    chunks: list[str] = []
+    for line in normalized.split("\n"):
+        block = re.sub(r"[ \t\f\v]+", " ", line).strip()
+        if not block:
+            continue
+        chunks.extend(_split_text_block(block, max_chars=max_chars))
+
+    return chunks
+
+
+def _split_text_block(text: str, max_chars: int) -> list[str]:
+    sentences = [part.strip() for part in re.findall(r".+?(?:[。．！？!?]|$)", text) if part.strip()]
+    chunks: list[str] = []
+    current = ""
+
+    for sentence in sentences:
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(_split_long_sentence(sentence, max_chars=max_chars))
+            continue
+
+        next_chunk = _join_chunk_text(current, sentence) if current else sentence
+        if current and len(next_chunk) > max_chars:
+            chunks.append(current)
+            current = sentence
+        else:
+            current = next_chunk
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
+def _join_chunk_text(current: str, sentence: str) -> str:
+    separator = "" if current.endswith(("。", "．", "！", "？", "!", "?")) else " "
+    return f"{current}{separator}{sentence}"
+
+
+def _split_long_sentence(sentence: str, max_chars: int) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    parts = [part for part in re.split(r"([、,])", sentence) if part]
+
+    for part in parts:
+        next_chunk = f"{current}{part}"
+        if current and len(next_chunk) > max_chars:
+            chunks.append(current)
+            current = part
+        else:
+            current = next_chunk
+
+    if current:
+        chunks.append(current)
+
+    result: list[str] = []
+    for chunk in chunks:
+        if len(chunk) <= max_chars:
+            result.append(chunk)
+            continue
+        result.extend(chunk[index : index + max_chars] for index in range(0, len(chunk), max_chars))
+    return [chunk.strip() for chunk in result if chunk.strip()]
+
+
+def serialize_job(job: SpeechJobState) -> SpeechJobStatusResponse:
+    chunks = [
+        SpeechJobChunk(
+            index=chunk.index,
+            status=chunk.status,
+            text=chunk.text,
+            audio_url=(
+                f"/v1/audio/speech/jobs/{job.job_id}/chunks/{chunk.index}.wav"
+                if chunk.status == "ready"
+                else None
+            ),
+            error=chunk.error,
+        )
+        for chunk in job.chunks
+    ]
+    return SpeechJobStatusResponse(job_id=job.job_id, status=job.status, chunks=chunks)
 
 
 class IrodoriTtsService:
@@ -189,6 +353,7 @@ class IrodoriTtsService:
 
 
 service = IrodoriTtsService()
+jobs = SpeechJobStore()
 app = FastAPI(title="expo-sanpo Irodori-TTS server")
 
 
@@ -211,6 +376,59 @@ def health() -> dict[str, object]:
         "tScheduleMode": service.t_schedule_mode,
         "swayCoeff": service.sway_coeff,
     }
+
+
+async def run_speech_job(job: SpeechJobState) -> None:
+    job.status = "running"
+    for chunk in job.chunks:
+        chunk.status = "running"
+        try:
+            chunk.audio = await service.synthesize(chunk.text)
+            chunk.status = "ready"
+        except Exception as error:  # noqa: BLE001
+            chunk.status = "failed"
+            chunk.error = str(error)
+            job.status = "failed"
+            return
+    job.status = "ready"
+
+
+@app.post("/v1/audio/speech/jobs")
+async def create_speech_job(request: SpeechRequest) -> SpeechJobResponse:
+    if request.response_format != "wav":
+        raise HTTPException(status_code=400, detail="Only wav response_format is supported.")
+
+    chunks = split_text_for_tts(request.input)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="input is required.")
+
+    job = jobs.create(chunks)
+    asyncio.create_task(run_speech_job(job))
+    return SpeechJobResponse(job_id=job.job_id, chunk_count=len(job.chunks))
+
+
+@app.get("/v1/audio/speech/jobs/{job_id}")
+async def get_speech_job(job_id: str) -> SpeechJobStatusResponse:
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Speech job was not found.")
+    return serialize_job(job)
+
+
+@app.get("/v1/audio/speech/jobs/{job_id}/chunks/{chunk_index}.wav")
+async def get_speech_job_chunk(job_id: str, chunk_index: int) -> Response:
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Speech job was not found.")
+
+    if chunk_index < 0 or chunk_index >= len(job.chunks):
+        raise HTTPException(status_code=404, detail="Speech chunk was not found.")
+
+    chunk = job.chunks[chunk_index]
+    if chunk.status != "ready" or chunk.audio is None:
+        raise HTTPException(status_code=409, detail="Speech chunk is not ready.")
+
+    return Response(content=chunk.audio, media_type="audio/wav")
 
 
 @app.post("/v1/audio/speech")
